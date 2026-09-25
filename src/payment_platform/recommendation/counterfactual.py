@@ -48,8 +48,8 @@ def predict_counterfactual_failure_probabilities(
     """
     Predict failure probability for each candidate payment method.
 
-    The model receives the same engineered feature representation used
-    during model training.
+    The trained model predicts payment success probability. This function
+    converts that output to failure probability before returning it.
     """
     counterfactuals = build_counterfactual_transactions(
         transaction=transaction,
@@ -58,9 +58,14 @@ def predict_counterfactual_failure_probabilities(
 
     model_features = get_model_features(counterfactuals)
 
-    probabilities = model.predict_proba(model_features)[:, 1]
+    success_probabilities = model.predict_proba(model_features)[:, 1]
+
+    failure_probabilities = 1.0 - success_probabilities
 
     return {
         method: float(probability)
-        for method, probability in zip(payment_methods, probabilities)
+        for method, probability in zip(
+            payment_methods,
+            failure_probabilities,
+        )
     }
