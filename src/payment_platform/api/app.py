@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 
 from payment_platform.api.routes.prediction import router as prediction_router
-
+from payment_platform.api.routes.recommendation import (
+    router as recommendation_router,
+)
 
 app = FastAPI(
     title="Payment Intelligence & Smart Routing Platform",
@@ -15,8 +17,8 @@ app = FastAPI(
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
-    """Return API health status."""
     return {"status": "healthy"}
 
 
 app.include_router(prediction_router)
+app.include_router(recommendation_router)
