@@ -75,7 +75,7 @@ def build_base_model() -> Pipeline:
     )
 
     model = LogisticRegression(
-        max_iter=1000,
+        max_iter=5000,
         random_state=42,
     )
 
