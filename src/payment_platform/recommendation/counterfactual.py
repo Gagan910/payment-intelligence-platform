@@ -4,6 +4,8 @@ from typing import Sequence
 
 import pandas as pd
 
+from payment_platform.data.features import get_model_features
+
 
 DEFAULT_PAYMENT_METHODS = (
     "upi",
@@ -22,19 +24,6 @@ def build_counterfactual_transactions(
     Build counterfactual versions of one transaction.
 
     Every transaction attribute remains unchanged except payment_method.
-
-    Parameters
-    ----------
-    transaction:
-        Original transaction context.
-
-    payment_methods:
-        Payment methods to evaluate.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per candidate payment method.
     """
     if not payment_methods:
         raise ValueError("payment_methods cannot be empty.")
@@ -59,19 +48,17 @@ def predict_counterfactual_failure_probabilities(
     """
     Predict failure probability for each candidate payment method.
 
-    The supplied model must expose ``predict_proba``.
-
-    Returns
-    -------
-    dict[str, float]
-        Mapping of payment method to predicted failure probability.
+    The model receives the same engineered feature representation used
+    during model training.
     """
     counterfactuals = build_counterfactual_transactions(
         transaction=transaction,
         payment_methods=payment_methods,
     )
 
-    probabilities = model.predict_proba(counterfactuals)[:, 1]
+    model_features = get_model_features(counterfactuals)
+
+    probabilities = model.predict_proba(model_features)[:, 1]
 
     return {
         method: float(probability)
