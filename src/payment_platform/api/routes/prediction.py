@@ -1,23 +1,33 @@
+import pandas as pd
 from fastapi import APIRouter
 
 from payment_platform.api.schemas.prediction import (
     PredictionRequest,
     PredictionResponse,
 )
+from payment_platform.ml.predictor import PaymentPredictor
 
 
 router = APIRouter(prefix="/predict", tags=["Prediction"])
 
+predictor = PaymentPredictor()
+
 
 @router.post("", response_model=PredictionResponse)
 def predict(request: PredictionRequest) -> PredictionResponse:
-    """
-    Prediction endpoint placeholder.
+    """Predict payment failure probability for a transaction."""
 
-    ML model integration will be added in the next step.
-    """
+    transaction = request.model_dump()
+    transaction_df = pd.DataFrame([transaction])
+
+    failure_probability = predictor.predict_failure_probability(
+        transaction_df
+    )
+
+    success_probability = 1.0 - failure_probability
+
     return PredictionResponse(
-        failure_probability=0.0,
-        success_probability=1.0,
-        model_version="placeholder",
+        failure_probability=failure_probability,
+        success_probability=success_probability,
+        model_version=predictor.model_version,
     )

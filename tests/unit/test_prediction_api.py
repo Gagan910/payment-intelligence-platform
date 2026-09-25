@@ -37,7 +37,7 @@ def test_prediction_endpoint_accepts_valid_request():
 
     assert 0 <= body["failure_probability"] <= 1
     assert 0 <= body["success_probability"] <= 1
-    assert body["model_version"] == "placeholder"
+    assert body["model_version"] == "logistic_regression_baseline_v1"
 
 
 def test_prediction_endpoint_rejects_invalid_amount():
