@@ -86,7 +86,32 @@ def create_test_transaction() -> None:
                 ),
             )
 
+            cursor.execute(
+                """
+                INSERT INTO transaction_context (
+                    transaction_id,
+                    device_type,
+                    network_quality,
+                    retry_count,
+                    transaction_velocity,
+                    user_method_success_rate,
+                    merchant_method_success_rate
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    TRANSACTION_ID,
+                    "mobile",
+                    "good",
+                    0,
+                    2,
+                    0.90,
+                    0.92,
+                ),
+            )
+
         conn.commit()
+
     finally:
         conn.close()
 
@@ -99,6 +124,14 @@ def cleanup_test_data() -> None:
             cursor.execute(
                 """
                 DELETE FROM payment_attempts
+                WHERE transaction_id = %s
+                """,
+                (TRANSACTION_ID,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transaction_context
                 WHERE transaction_id = %s
                 """,
                 (TRANSACTION_ID,),
@@ -129,6 +162,7 @@ def cleanup_test_data() -> None:
             )
 
         conn.commit()
+
     finally:
         conn.close()
 

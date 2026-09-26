@@ -13,7 +13,9 @@ from payment_platform.db.connection import get_connection
 from payment_platform.db.repositories.payment_attempts import (
     create_payment_attempt,
 )
-from payment_platform.db.repositories.transactions import get_transaction
+from payment_platform.db.repositories.transactions import (
+    get_transaction_context,
+)
 from payment_platform.simulation.payment import simulate_payment_outcome
 
 
@@ -31,36 +33,22 @@ def create_payment_attempt_endpoint(
     conn = get_connection()
 
     try:
-        transaction = get_transaction(
+        transaction_context_data = get_transaction_context(
             conn,
             transaction_id=request.transaction_id,
+            payment_method=request.payment_method,
         )
 
-        if transaction is None:
+        if transaction_context_data is None:
             raise HTTPException(
                 status_code=404,
                 detail=(
                     f"Transaction '{request.transaction_id}' "
-                    "does not exist."
+                    "or its transaction context does not exist."
                 ),
             )
 
-        transaction_context = pd.Series(
-            {
-                "amount": transaction["amount"],
-                "merchant_category": "electronics",
-                "payment_method": request.payment_method,
-                "user_segment": "regular",
-                "device_type": "mobile",
-                "network_quality": "good",
-                "hour_of_day": started_at.hour,
-                "day_of_week": started_at.weekday(),
-                "retry_count": request.attempt_number - 1,
-                "transaction_velocity": 1,
-                "user_method_success_rate": 0.90,
-                "merchant_method_success_rate": 0.92,
-            }
-        )
+        transaction_context = pd.Series(transaction_context_data)
 
         _, outcome = simulate_payment_outcome(transaction_context)
 

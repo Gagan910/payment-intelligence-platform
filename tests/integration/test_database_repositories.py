@@ -16,6 +16,10 @@ from payment_platform.db.repositories.predictions import create_prediction
 from payment_platform.db.repositories.recommendations import (
     create_recommendation,
 )
+from payment_platform.db.repositories.transaction_context import (
+    create_transaction_context,
+    get_transaction_context,
+)
 from payment_platform.db.repositories.transactions import (
     create_transaction,
     get_transaction,
@@ -29,7 +33,6 @@ TEST_TRANSACTION_ID = "integration_test_transaction"
 
 def cleanup_test_data() -> None:
     """Remove records created by the integration test."""
-
     conn = get_connection()
 
     try:
@@ -76,6 +79,14 @@ def cleanup_test_data() -> None:
 
             cursor.execute(
                 """
+                DELETE FROM transaction_context
+                WHERE transaction_id = %s
+                """,
+                (TEST_TRANSACTION_ID,),
+            )
+
+            cursor.execute(
+                """
                 DELETE FROM transactions
                 WHERE transaction_id = %s
                 """,
@@ -106,7 +117,6 @@ def cleanup_test_data() -> None:
 
 def test_database_repositories() -> None:
     """Verify the complete repository persistence flow."""
-
     cleanup_test_data()
 
     conn = get_connection()
@@ -124,7 +134,11 @@ def test_database_repositories() -> None:
                 )
                 VALUES (%s, %s, %s)
                 """,
-                (TEST_USER_ID, "regular", "upi"),
+                (
+                    TEST_USER_ID,
+                    "regular",
+                    "upi",
+                ),
             )
 
             cursor.execute(
@@ -136,7 +150,11 @@ def test_database_repositories() -> None:
                 )
                 VALUES (%s, %s, %s)
                 """,
-                (TEST_MERCHANT_ID, "electronics", 0.10),
+                (
+                    TEST_MERCHANT_ID,
+                    "electronics",
+                    0.10,
+                ),
             )
 
         conn.commit()
@@ -169,6 +187,31 @@ def test_database_repositories() -> None:
         assert transaction["experiment_variant"] == "control"
         assert transaction["status"] == "initiated"
 
+        create_transaction_context(
+            conn,
+            transaction_id=TEST_TRANSACTION_ID,
+            device_type="mobile",
+            network_quality="good",
+            retry_count=0,
+            transaction_velocity=2,
+            user_method_success_rate=0.90,
+            merchant_method_success_rate=0.92,
+        )
+
+        context = get_transaction_context(
+            conn,
+            transaction_id=TEST_TRANSACTION_ID,
+        )
+
+        assert context is not None
+        assert context["transaction_id"] == TEST_TRANSACTION_ID
+        assert context["device_type"] == "mobile"
+        assert context["network_quality"] == "good"
+        assert context["retry_count"] == 0
+        assert context["transaction_velocity"] == 2
+        assert context["user_method_success_rate"] == 0.90
+        assert context["merchant_method_success_rate"] == 0.92
+
         prediction_id = create_prediction(
             conn,
             transaction_id=TEST_TRANSACTION_ID,
@@ -185,7 +228,10 @@ def test_database_repositories() -> None:
             original_method="upi",
             recommended_method="credit_card",
             recommendation_score=0.08,
-            reason="Alternative payment method has lower predicted failure probability.",
+            reason=(
+                "Alternative payment method has lower predicted "
+                "failure probability."
+            ),
             accepted=True,
             timestamp=now,
         )
@@ -232,6 +278,16 @@ def test_database_repositories() -> None:
                 """
                 SELECT COUNT(*)
                 FROM transactions
+                WHERE transaction_id = %s
+                """,
+                (TEST_TRANSACTION_ID,),
+            )
+            assert cursor.fetchone()[0] == 1
+
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM transaction_context
                 WHERE transaction_id = %s
                 """,
                 (TEST_TRANSACTION_ID,),

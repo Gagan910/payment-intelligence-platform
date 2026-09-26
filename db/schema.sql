@@ -27,6 +27,32 @@ CREATE TABLE transactions (
     status VARCHAR(50) NOT NULL
 );
 
+CREATE TABLE transaction_context (
+
+    transaction_id VARCHAR(100) PRIMARY KEY
+        REFERENCES transactions(transaction_id)
+        ON DELETE CASCADE,
+
+    device_type VARCHAR(50) NOT NULL,
+
+    network_quality VARCHAR(50) NOT NULL,
+
+    retry_count INTEGER NOT NULL
+        CHECK (retry_count >= 0),
+
+    transaction_velocity INTEGER NOT NULL
+        CHECK (transaction_velocity >= 0),
+
+    user_method_success_rate DOUBLE PRECISION NOT NULL
+        CHECK (user_method_success_rate >= 0
+            AND user_method_success_rate <= 1),
+
+    merchant_method_success_rate DOUBLE PRECISION NOT NULL
+        CHECK (merchant_method_success_rate >= 0
+            AND merchant_method_success_rate <= 1)
+
+);
+
 CREATE TABLE predictions (
     prediction_id BIGSERIAL PRIMARY KEY,
     transaction_id VARCHAR(100) NOT NULL REFERENCES transactions(transaction_id),
