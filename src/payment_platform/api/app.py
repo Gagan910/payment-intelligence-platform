@@ -4,6 +4,9 @@ from payment_platform.api.routes.prediction import router as prediction_router
 from payment_platform.api.routes.recommendation import (
     router as recommendation_router,
 )
+from payment_platform.api.routes.payment_attempt import (
+    router as payment_attempt_router,
+)
 from payment_platform.api.routes.transaction import router as transaction_router
 
 
@@ -25,3 +28,4 @@ def health_check() -> dict[str, str]:
 app.include_router(transaction_router)
 app.include_router(prediction_router)
 app.include_router(recommendation_router)
+app.include_router(payment_attempt_router)
