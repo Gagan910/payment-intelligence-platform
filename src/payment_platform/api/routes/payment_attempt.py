@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import random
 from datetime import datetime, timezone
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 from payment_platform.api.schemas.payment_attempt import (
@@ -13,6 +13,7 @@ from payment_platform.db.connection import get_connection
 from payment_platform.db.repositories.payment_attempts import (
     create_payment_attempt,
 )
+from payment_platform.simulation.payment import simulate_payment_outcome
 
 
 router = APIRouter(prefix="/payment-attempts", tags=["Payment Attempts"])
@@ -26,7 +27,24 @@ def create_payment_attempt_endpoint(
 
     started_at = datetime.now(timezone.utc)
 
-    outcome = random.choice(["success", "failure"])
+    transaction = pd.Series(
+        {
+            "amount": 500.0,
+            "merchant_category": "electronics",
+            "payment_method": request.payment_method,
+            "user_segment": "regular",
+            "device_type": "mobile",
+            "network_quality": "good",
+            "hour_of_day": started_at.hour,
+            "day_of_week": started_at.weekday(),
+            "retry_count": request.attempt_number - 1,
+            "transaction_velocity": 1,
+            "user_method_success_rate": 0.90,
+            "merchant_method_success_rate": 0.92,
+        }
+    )
+
+    _, outcome = simulate_payment_outcome(transaction)
 
     completed_at = datetime.now(timezone.utc)
 
