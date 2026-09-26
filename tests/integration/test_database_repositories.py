@@ -16,7 +16,10 @@ from payment_platform.db.repositories.predictions import create_prediction
 from payment_platform.db.repositories.recommendations import (
     create_recommendation,
 )
-from payment_platform.db.repositories.transactions import create_transaction
+from payment_platform.db.repositories.transactions import (
+    create_transaction,
+    get_transaction,
+)
 
 
 TEST_USER_ID = "integration_test_user"
@@ -150,6 +153,21 @@ def test_database_repositories() -> None:
             experiment_variant="control",
             status="initiated",
         )
+
+        transaction = get_transaction(
+            conn,
+            transaction_id=TEST_TRANSACTION_ID,
+        )
+
+        assert transaction is not None
+        assert transaction["transaction_id"] == TEST_TRANSACTION_ID
+        assert transaction["user_id"] == TEST_USER_ID
+        assert transaction["merchant_id"] == TEST_MERCHANT_ID
+        assert transaction["amount"] == 500.00
+        assert transaction["currency"] == "INR"
+        assert transaction["selected_payment_method"] == "upi"
+        assert transaction["experiment_variant"] == "control"
+        assert transaction["status"] == "initiated"
 
         prediction_id = create_prediction(
             conn,

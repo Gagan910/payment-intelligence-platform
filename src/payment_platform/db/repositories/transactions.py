@@ -54,3 +54,45 @@ def create_transaction(
         )
 
     conn.commit()
+
+
+def get_transaction(
+    conn: psycopg.Connection,
+    *,
+    transaction_id: str,
+) -> dict | None:
+    """Retrieve a transaction by its transaction ID."""
+
+    query = """
+        SELECT
+            transaction_id,
+            user_id,
+            merchant_id,
+            amount,
+            currency,
+            timestamp,
+            selected_payment_method,
+            experiment_variant,
+            status
+        FROM transactions
+        WHERE transaction_id = %s
+    """
+
+    with conn.cursor() as cursor:
+        cursor.execute(query, (transaction_id,))
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "transaction_id": row[0],
+        "user_id": row[1],
+        "merchant_id": row[2],
+        "amount": float(row[3]),
+        "currency": row[4],
+        "timestamp": row[5],
+        "selected_payment_method": row[6],
+        "experiment_variant": row[7],
+        "status": row[8],
+    }

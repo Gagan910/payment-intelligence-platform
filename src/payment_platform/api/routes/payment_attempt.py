@@ -13,6 +13,7 @@ from payment_platform.db.connection import get_connection
 from payment_platform.db.repositories.payment_attempts import (
     create_payment_attempt,
 )
+from payment_platform.db.repositories.transactions import get_transaction
 from payment_platform.simulation.payment import simulate_payment_outcome
 
 
@@ -27,49 +28,54 @@ def create_payment_attempt_endpoint(
 
     started_at = datetime.now(timezone.utc)
 
-    transaction = pd.Series(
-        {
-            "amount": 500.0,
-            "merchant_category": "electronics",
-            "payment_method": request.payment_method,
-            "user_segment": "regular",
-            "device_type": "mobile",
-            "network_quality": "good",
-            "hour_of_day": started_at.hour,
-            "day_of_week": started_at.weekday(),
-            "retry_count": request.attempt_number - 1,
-            "transaction_velocity": 1,
-            "user_method_success_rate": 0.90,
-            "merchant_method_success_rate": 0.92,
-        }
-    )
-
-    _, outcome = simulate_payment_outcome(transaction)
-
-    completed_at = datetime.now(timezone.utc)
-
     conn = get_connection()
 
     try:
-        try:
-            attempt_id = create_payment_attempt(
-                conn,
-                transaction_id=request.transaction_id,
-                payment_method=request.payment_method,
-                attempt_number=request.attempt_number,
-                started_at=started_at,
-                completed_at=completed_at,
-                outcome=outcome,
-            )
-        except Exception as exc:
-            conn.rollback()
+        transaction = get_transaction(
+            conn,
+            transaction_id=request.transaction_id,
+        )
+
+        if transaction is None:
             raise HTTPException(
                 status_code=404,
                 detail=(
                     f"Transaction '{request.transaction_id}' "
                     "does not exist."
                 ),
-            ) from exc
+            )
+
+        transaction_context = pd.Series(
+            {
+                "amount": transaction["amount"],
+                "merchant_category": "electronics",
+                "payment_method": request.payment_method,
+                "user_segment": "regular",
+                "device_type": "mobile",
+                "network_quality": "good",
+                "hour_of_day": started_at.hour,
+                "day_of_week": started_at.weekday(),
+                "retry_count": request.attempt_number - 1,
+                "transaction_velocity": 1,
+                "user_method_success_rate": 0.90,
+                "merchant_method_success_rate": 0.92,
+            }
+        )
+
+        _, outcome = simulate_payment_outcome(transaction_context)
+
+        completed_at = datetime.now(timezone.utc)
+
+        attempt_id = create_payment_attempt(
+            conn,
+            transaction_id=request.transaction_id,
+            payment_method=request.payment_method,
+            attempt_number=request.attempt_number,
+            started_at=started_at,
+            completed_at=completed_at,
+            outcome=outcome,
+        )
+
     finally:
         conn.close()
 
