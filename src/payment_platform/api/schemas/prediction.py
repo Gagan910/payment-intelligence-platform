@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class PredictionRequest(BaseModel):
+    transaction_id: str
     amount: float = Field(gt=0)
     merchant_category: str
     payment_method: str
@@ -17,6 +18,7 @@ class PredictionRequest(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    transaction_id: str
     failure_probability: float = Field(ge=0, le=1)
     success_probability: float = Field(ge=0, le=1)
     model_version: str

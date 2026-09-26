@@ -1,12 +1,17 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 from payment_platform.api.app import app
+from payment_platform.db.connection import get_connection
+from payment_platform.db.repositories.transactions import create_transaction
 
 
 client = TestClient(app)
 
 
 VALID_REQUEST = {
+    "transaction_id": "txn_recommendation_test",
     "amount": 500,
     "merchant_category": "electronics",
     "payment_method": "debit_card",
@@ -22,46 +27,164 @@ VALID_REQUEST = {
 }
 
 
+def create_test_transaction() -> None:
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users (
+                    user_id,
+                    user_segment,
+                    preferred_payment_method
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+                (
+                    "user_recommendation_test",
+                    "regular",
+                    "debit_card",
+                ),
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO merchants (
+                    merchant_id,
+                    merchant_category,
+                    merchant_risk_score
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT (merchant_id) DO NOTHING
+                """,
+                (
+                    "merchant_recommendation_test",
+                    "electronics",
+                    0.20,
+                ),
+            )
+
+        conn.commit()
+
+        create_transaction(
+            conn,
+            transaction_id=VALID_REQUEST["transaction_id"],
+            user_id="user_recommendation_test",
+            merchant_id="merchant_recommendation_test",
+            amount=VALID_REQUEST["amount"],
+            currency="INR",
+            timestamp=datetime.now(timezone.utc),
+            selected_payment_method=VALID_REQUEST["payment_method"],
+            experiment_variant=None,
+            status="initiated",
+        )
+    finally:
+        conn.close()
+
+
+def cleanup_test_data() -> None:
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM recommendations
+                WHERE transaction_id = %s
+                """,
+                (VALID_REQUEST["transaction_id"],),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transactions
+                WHERE transaction_id = %s
+                """,
+                (VALID_REQUEST["transaction_id"],),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM users
+                WHERE user_id = %s
+                """,
+                ("user_recommendation_test",),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM merchants
+                WHERE merchant_id = %s
+                """,
+                ("merchant_recommendation_test",),
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def test_recommendation_api_returns_success_response():
-    response = client.post("/recommend", json=VALID_REQUEST)
+    cleanup_test_data()
+    create_test_transaction()
 
-    assert response.status_code == 200
+    try:
+        response = client.post("/recommend", json=VALID_REQUEST)
 
-    data = response.json()
+        assert response.status_code == 200
 
-    assert "recommendation_action" in data
-    assert "current_method" in data
-    assert "recommended_method" in data
-    assert "current_failure_probability" in data
-    assert "recommended_failure_probability" in data
-    assert "expected_improvement" in data
-    assert "reason" in data
-    assert "model_version" in data
+        data = response.json()
+
+        assert data["transaction_id"] == VALID_REQUEST["transaction_id"]
+        assert "recommendation_action" in data
+        assert "current_method" in data
+        assert "recommended_method" in data
+        assert "current_failure_probability" in data
+        assert "recommended_failure_probability" in data
+        assert "expected_improvement" in data
+        assert "reason" in data
+        assert "model_version" in data
+    finally:
+        cleanup_test_data()
 
 
 def test_recommendation_api_preserves_current_method():
-    response = client.post("/recommend", json=VALID_REQUEST)
+    cleanup_test_data()
+    create_test_transaction()
 
-    assert response.status_code == 200
+    try:
+        response = client.post("/recommend", json=VALID_REQUEST)
 
-    data = response.json()
+        assert response.status_code == 200
 
-    assert data["current_method"] == "debit_card"
+        data = response.json()
+
+        assert data["current_method"] == "debit_card"
+    finally:
+        cleanup_test_data()
 
 
 def test_recommendation_api_probability_values_are_valid():
-    response = client.post("/recommend", json=VALID_REQUEST)
+    cleanup_test_data()
+    create_test_transaction()
 
-    assert response.status_code == 200
+    try:
+        response = client.post("/recommend", json=VALID_REQUEST)
 
-    data = response.json()
+        assert response.status_code == 200
 
-    assert 0 <= data["current_failure_probability"] <= 1
+        data = response.json()
 
-    if data["recommended_failure_probability"] is not None:
-        assert 0 <= data["recommended_failure_probability"] <= 1
+        assert 0 <= data["current_failure_probability"] <= 1
 
-    assert data["expected_improvement"] >= 0
+        if data["recommended_failure_probability"] is not None:
+            assert 0 <= data["recommended_failure_probability"] <= 1
+
+        assert data["expected_improvement"] >= 0
+    finally:
+        cleanup_test_data()
 
 
 def test_recommendation_api_rejects_invalid_amount():

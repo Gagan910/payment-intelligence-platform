@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class RecommendationRequest(BaseModel):
+    transaction_id: str
     amount: float = Field(gt=0)
     merchant_category: str
     payment_method: str
@@ -17,6 +18,7 @@ class RecommendationRequest(BaseModel):
 
 
 class RecommendationResponse(BaseModel):
+    transaction_id: str
     recommendation_action: str
     current_method: str
     recommended_method: str | None
