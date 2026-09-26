@@ -98,6 +98,29 @@ def get_transaction(
     }
 
 
+def update_transaction_status(
+    conn: psycopg.Connection,
+    *,
+    transaction_id: str,
+    status: str,
+) -> None:
+    """Update the lifecycle status of a transaction."""
+
+    query = """
+        UPDATE transactions
+        SET status = %s
+        WHERE transaction_id = %s
+    """
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            query,
+            (status, transaction_id),
+        )
+
+    conn.commit()
+
+
 def get_transaction_context(
     conn: psycopg.Connection,
     *,

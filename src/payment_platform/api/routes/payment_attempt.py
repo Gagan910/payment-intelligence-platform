@@ -16,6 +16,10 @@ from payment_platform.db.repositories.payment_attempts import (
 from payment_platform.db.repositories.transactions import (
     get_transaction_context,
 )
+from payment_platform.db.repositories.transactions import (
+    get_transaction_context,
+    update_transaction_status,
+)
 from payment_platform.simulation.payment import simulate_payment_outcome
 
 
@@ -63,6 +67,13 @@ def create_payment_attempt_endpoint(
             completed_at=completed_at,
             outcome=outcome,
         )
+        
+        update_transaction_status(
+            conn,
+            transaction_id=request.transaction_id,
+            status=outcome,
+        )
+        
 
     finally:
         conn.close()
