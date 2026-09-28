@@ -22,7 +22,6 @@ TRANSACTION_REQUEST = {
     "amount": 500,
     "currency": "INR",
     "selected_payment_method": "debit_card",
-    "experiment_variant": "control",
     "status": "initiated",
 }
 
@@ -173,6 +172,7 @@ def test_transaction_prediction_recommendation_flow():
 
         assert transaction_data["transaction_id"] == TRANSACTION_ID
         assert transaction_data["status"] == "initiated"
+        assert transaction_data["experiment_variant"] == "control"
 
         conn = get_connection()
 
