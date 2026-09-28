@@ -13,6 +13,7 @@ def create_experiment_assignment(
     session_id: str | None,
     variant: str,
     assigned_at: datetime,
+    commit: bool = True,
 ) -> int:
     """Insert an experiment assignment and return its database ID."""
 
@@ -43,6 +44,7 @@ def create_experiment_assignment(
         )
         assignment_id = cursor.fetchone()[0]
 
-    conn.commit()
+    if commit:
+        conn.commit()
 
     return int(assignment_id)

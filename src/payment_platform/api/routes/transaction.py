@@ -10,7 +10,13 @@ from payment_platform.api.schemas.transaction import (
 )
 from payment_platform.db.connection import get_connection
 from payment_platform.db.repositories.transactions import create_transaction
+from payment_platform.experiments.config import (
+    EXPERIMENT_ID,
+    TREATMENT_PERCENTAGE,
+)
+from payment_platform.experiments.service import assign_and_persist_variant
 
+from payment_platform.experiments.events import record_experiment_event
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -19,13 +25,23 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 def create_transaction_endpoint(
     request: TransactionRequest,
 ) -> TransactionResponse:
-    """Create and persist a payment transaction."""
+    """Create a transaction and assign its experiment variant server-side."""
 
     transaction_timestamp = datetime.now(timezone.utc)
 
     conn = get_connection()
 
     try:
+        experiment_variant = assign_and_persist_variant(
+            conn,
+            experiment_id=EXPERIMENT_ID,
+            subject_id=request.user_id,
+            user_id=request.user_id,
+            session_id=None,
+            treatment_percentage=TREATMENT_PERCENTAGE,
+            commit=False,
+        )
+
         create_transaction(
             conn,
             transaction_id=request.transaction_id,
@@ -35,9 +51,29 @@ def create_transaction_endpoint(
             currency=request.currency,
             timestamp=transaction_timestamp,
             selected_payment_method=request.selected_payment_method,
-            experiment_variant=request.experiment_variant,
+            experiment_variant=experiment_variant,
             status=request.status,
         )
+
+        record_experiment_event(
+            conn,
+            experiment_id=EXPERIMENT_ID,
+            transaction_id=request.transaction_id,
+            event_type="checkout_started",
+            metadata={
+                "variant": experiment_variant,
+                "payment_method": request.selected_payment_method,
+                "amount": request.amount,
+            },
+            commit=False,
+        )
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
     finally:
         conn.close()
 

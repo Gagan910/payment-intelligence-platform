@@ -15,6 +15,7 @@ def create_experiment_event(
     event_type: str,
     timestamp: datetime,
     metadata: dict[str, Any] | None,
+    commit: bool = True,
 ) -> int:
     """Insert an experiment event and return its database ID."""
 
@@ -47,6 +48,7 @@ def create_experiment_event(
         )
         event_id = cursor.fetchone()[0]
 
-    conn.commit()
+    if commit:
+        conn.commit()
 
     return int(event_id)
