@@ -15,15 +15,15 @@ from payment_platform.db.repositories.payment_attempts import (
 )
 from payment_platform.db.repositories.transactions import (
     get_transaction_context,
-)
-from payment_platform.db.repositories.transactions import (
-    get_transaction_context,
     update_transaction_status,
 )
 from payment_platform.simulation.payment import simulate_payment_outcome
 
 
-router = APIRouter(prefix="/payment-attempts", tags=["Payment Attempts"])
+router = APIRouter(
+    prefix="/payment-attempts",
+    tags=["Payment Attempts"],
+)
 
 
 @router.post("", response_model=PaymentAttemptResponse)
@@ -66,14 +66,25 @@ def create_payment_attempt_endpoint(
             started_at=started_at,
             completed_at=completed_at,
             outcome=outcome,
+            commit=False,
         )
-        
+
         update_transaction_status(
             conn,
             transaction_id=request.transaction_id,
             status=outcome,
+            commit=False,
         )
-        
+
+        conn.commit()
+
+    except HTTPException:
+        conn.rollback()
+        raise
+
+    except Exception:
+        conn.rollback()
+        raise
 
     finally:
         conn.close()

@@ -14,6 +14,7 @@ def create_payment_attempt(
     started_at: datetime,
     completed_at: datetime | None,
     outcome: str,
+    commit: bool = True,
 ) -> int:
     """Insert a payment attempt and return its database ID."""
 
@@ -46,6 +47,7 @@ def create_payment_attempt(
         )
         attempt_id = cursor.fetchone()[0]
 
-    conn.commit()
+    if commit:
+        conn.commit()
 
     return int(attempt_id)

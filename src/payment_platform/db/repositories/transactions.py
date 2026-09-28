@@ -103,6 +103,7 @@ def update_transaction_status(
     *,
     transaction_id: str,
     status: str,
+    commit: bool = True,
 ) -> None:
     """Update the lifecycle status of a transaction."""
 
@@ -118,7 +119,8 @@ def update_transaction_status(
             (status, transaction_id),
         )
 
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def get_transaction_context(

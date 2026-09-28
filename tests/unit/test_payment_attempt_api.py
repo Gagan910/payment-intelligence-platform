@@ -1,3 +1,4 @@
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -261,3 +262,56 @@ def test_payment_attempt_api_rejects_missing_transaction():
     )
 
     assert response.status_code == 404
+    
+def test_payment_attempt_api_rolls_back_when_status_update_fails():
+    cleanup_test_data()
+    create_test_transaction()
+
+    try:
+        with patch(
+            "payment_platform.api.routes.payment_attempt."
+            "update_transaction_status",
+            side_effect=RuntimeError("Simulated status update failure"),
+        ):
+            try:
+                client.post(
+                    "/payment-attempts",
+                    json=VALID_REQUEST,
+                )
+            except RuntimeError as exc:
+                assert str(exc) == "Simulated status update failure"
+
+        conn = get_connection()
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM payment_attempts
+                    WHERE transaction_id = %s
+                    """,
+                    (TRANSACTION_ID,),
+                )
+
+                payment_attempt_count = cursor.fetchone()[0]
+
+                cursor.execute(
+                    """
+                    SELECT status
+                    FROM transactions
+                    WHERE transaction_id = %s
+                    """,
+                    (TRANSACTION_ID,),
+                )
+
+                transaction_status = cursor.fetchone()[0]
+
+            assert payment_attempt_count == 0
+            assert transaction_status == "initiated"
+
+        finally:
+            conn.close()
+
+    finally:
+        cleanup_test_data()
