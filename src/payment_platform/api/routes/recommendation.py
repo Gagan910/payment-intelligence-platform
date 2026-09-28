@@ -16,12 +16,14 @@ from payment_platform.db.repositories.recommendations import (
     get_recommendation,
     update_recommendation_decision,
 )
+from payment_platform.db.repositories.transactions import get_transaction
 from payment_platform.ml.predictor import PaymentPredictor
 from payment_platform.recommendation.counterfactual import (
     predict_counterfactual_failure_probabilities,
 )
 from payment_platform.recommendation.engine import generate_recommendation
 from payment_platform.recommendation.selection import select_payment_method
+from payment_platform.experiments.events import record_experiment_event
 
 
 router = APIRouter(prefix="/recommend", tags=["Recommendation"])
@@ -117,6 +119,20 @@ def record_recommendation_decision(
                 ),
             )
 
+        transaction = get_transaction(
+            conn,
+            transaction_id=str(recommendation["transaction_id"]),
+        )
+
+        if transaction is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Transaction "
+                    f"'{recommendation['transaction_id']}' does not exist."
+                ),
+            )
+
         update_recommendation_decision(
             conn,
             recommendation_id=request.recommendation_id,
@@ -160,11 +176,40 @@ def record_recommendation_decision(
             accepted=request.accepted,
         )
 
+        record_experiment_event(
+            conn,
+            experiment_id="payment_routing_v1",
+            transaction_id=str(recommendation["transaction_id"]),
+            event_type="recommendation_decision",
+            metadata={
+                "variant": transaction["experiment_variant"],
+                "accepted": request.accepted,
+                "original_method": current_method,
+                "recommended_method": (
+                    str(recommended_method)
+                    if recommended_method is not None
+                    else None
+                ),
+                "selected_payment_method": selected_payment_method,
+            },
+            commit=False,
+        )
+
+        conn.commit()
+
         return {
             "recommendation_id": request.recommendation_id,
             "accepted": request.accepted,
             "selected_payment_method": selected_payment_method,
         }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+
+    except Exception:
+        conn.rollback()
+        raise
 
     finally:
         conn.close()

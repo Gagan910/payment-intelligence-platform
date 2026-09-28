@@ -14,9 +14,11 @@ from payment_platform.db.repositories.payment_attempts import (
     create_payment_attempt,
 )
 from payment_platform.db.repositories.transactions import (
+    get_transaction,
     get_transaction_context,
     update_transaction_status,
 )
+from payment_platform.experiments.events import record_experiment_event
 from payment_platform.simulation.payment import simulate_payment_outcome
 
 
@@ -37,6 +39,20 @@ def create_payment_attempt_endpoint(
     conn = get_connection()
 
     try:
+        transaction = get_transaction(
+            conn,
+            transaction_id=request.transaction_id,
+        )
+
+        if transaction is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Transaction '{request.transaction_id}' "
+                    "does not exist."
+                ),
+            )
+
         transaction_context_data = get_transaction_context(
             conn,
             transaction_id=request.transaction_id,
@@ -73,6 +89,20 @@ def create_payment_attempt_endpoint(
             conn,
             transaction_id=request.transaction_id,
             status=outcome,
+            commit=False,
+        )
+
+        record_experiment_event(
+            conn,
+            experiment_id="payment_routing_v1",
+            transaction_id=request.transaction_id,
+            event_type="payment_completed",
+            metadata={
+                "variant": transaction["experiment_variant"],
+                "payment_method": request.payment_method,
+                "attempt_number": request.attempt_number,
+                "outcome": outcome,
+            },
             commit=False,
         )
 

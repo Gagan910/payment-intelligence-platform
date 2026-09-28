@@ -124,6 +124,14 @@ def cleanup_test_data() -> None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
+                DELETE FROM experiment_events
+                WHERE transaction_id = %s
+                """,
+                (TRANSACTION_ID,),
+            )
+
+            cursor.execute(
+                """
                 DELETE FROM payment_attempts
                 WHERE transaction_id = %s
                 """,
@@ -262,7 +270,8 @@ def test_payment_attempt_api_rejects_missing_transaction():
     )
 
     assert response.status_code == 404
-    
+
+
 def test_payment_attempt_api_rolls_back_when_status_update_fails():
     cleanup_test_data()
     create_test_transaction()
@@ -309,6 +318,76 @@ def test_payment_attempt_api_rolls_back_when_status_update_fails():
 
             assert payment_attempt_count == 0
             assert transaction_status == "initiated"
+
+        finally:
+            conn.close()
+
+    finally:
+        cleanup_test_data()
+
+
+def test_payment_attempt_api_records_experiment_event():
+    cleanup_test_data()
+    create_test_transaction()
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE transactions
+                SET experiment_variant = %s
+                WHERE transaction_id = %s
+                """,
+                ("treatment", TRANSACTION_ID),
+            )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    try:
+        response = client.post(
+            "/payment-attempts",
+            json=VALID_REQUEST,
+        )
+
+        assert response.status_code == 200
+
+        conn = get_connection()
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        experiment_id,
+                        transaction_id,
+                        event_type,
+                        metadata
+                    FROM experiment_events
+                    WHERE transaction_id = %s
+                    ORDER BY event_id DESC
+                    LIMIT 1
+                    """,
+                    (TRANSACTION_ID,),
+                )
+
+                row = cursor.fetchone()
+
+            assert row is not None
+            assert row[0] == "payment_routing_v1"
+            assert row[1] == TRANSACTION_ID
+            assert row[2] == "payment_completed"
+
+            metadata = row[3]
+
+            assert metadata["variant"] == "treatment"
+            assert metadata["payment_method"] == "debit_card"
+            assert metadata["attempt_number"] == 1
+            assert metadata["outcome"] in {"success", "failure"}
 
         finally:
             conn.close()
