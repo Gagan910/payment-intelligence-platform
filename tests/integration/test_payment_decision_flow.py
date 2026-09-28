@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
-
 from fastapi.testclient import TestClient
 
 from payment_platform.api.app import app
 from payment_platform.db.connection import get_connection
+from payment_platform.db.repositories.transaction_context import (
+    create_transaction_context,
+)
 
 
 client = TestClient(app)
@@ -64,6 +65,22 @@ def cleanup_test_data() -> None:
             cursor.execute(
                 """
                 DELETE FROM predictions
+                WHERE transaction_id = %s
+                """,
+                (TRANSACTION_ID,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM payment_attempts
+                WHERE transaction_id = %s
+                """,
+                (TRANSACTION_ID,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transaction_context
                 WHERE transaction_id = %s
                 """,
                 (TRANSACTION_ID,),
@@ -157,6 +174,22 @@ def test_transaction_prediction_recommendation_flow():
         assert transaction_data["transaction_id"] == TRANSACTION_ID
         assert transaction_data["status"] == "initiated"
 
+        conn = get_connection()
+
+        try:
+            create_transaction_context(
+                conn,
+                transaction_id=TRANSACTION_ID,
+                device_type="mobile",
+                network_quality="good",
+                retry_count=0,
+                transaction_velocity=2,
+                user_method_success_rate=0.90,
+                merchant_method_success_rate=0.92,
+            )
+        finally:
+            conn.close()
+
         prediction_response = client.post(
             "/predict",
             json=PREDICTION_REQUEST,
@@ -192,6 +225,24 @@ def test_transaction_prediction_recommendation_flow():
 
         assert recommendation_data["expected_improvement"] >= 0
 
+        payment_attempt_response = client.post(
+            "/payment-attempts",
+            json={
+                "transaction_id": TRANSACTION_ID,
+                "payment_method": "debit_card",
+                "attempt_number": 1,
+            },
+        )
+
+        assert payment_attempt_response.status_code == 200
+
+        payment_attempt_data = payment_attempt_response.json()
+
+        assert payment_attempt_data["transaction_id"] == TRANSACTION_ID
+        assert payment_attempt_data["payment_method"] == "debit_card"
+        assert payment_attempt_data["attempt_number"] == 1
+        assert payment_attempt_data["outcome"] in {"success", "failure"}
+
         conn = get_connection()
 
         try:
@@ -226,9 +277,32 @@ def test_transaction_prediction_recommendation_flow():
                 )
                 recommendation_count = cursor.fetchone()[0]
 
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM payment_attempts
+                    WHERE transaction_id = %s
+                    """,
+                    (TRANSACTION_ID,),
+                )
+                payment_attempt_count = cursor.fetchone()[0]
+
+                cursor.execute(
+                    """
+                    SELECT status
+                    FROM transactions
+                    WHERE transaction_id = %s
+                    """,
+                    (TRANSACTION_ID,),
+                )
+                transaction_status = cursor.fetchone()[0]
+
             assert transaction_count == 1
             assert prediction_count == 1
             assert recommendation_count == 1
+            assert payment_attempt_count == 1
+            assert transaction_status == payment_attempt_data["outcome"]
+
         finally:
             conn.close()
 
