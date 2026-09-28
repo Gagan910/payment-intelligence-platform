@@ -15,3 +15,4 @@ class TransactionRequest(BaseModel):
 class TransactionResponse(BaseModel):
     transaction_id: str
     status: str
+    experiment_variant: str

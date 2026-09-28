@@ -119,14 +119,15 @@ def test_create_transaction_api() -> None:
 
     data = response.json()
 
-    assert data["transaction_id"] == TEST_TRANSACTION_ID
-    assert data["status"] == "initiated"
-
     expected_variant = assign_variant(
         experiment_id="payment_routing_v1",
         subject_id=TEST_USER_ID,
         treatment_percentage=50,
     )
+
+    assert data["transaction_id"] == TEST_TRANSACTION_ID
+    assert data["status"] == "initiated"
+    assert data["experiment_variant"] == expected_variant
 
     conn = get_connection()
 

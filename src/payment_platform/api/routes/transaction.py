@@ -14,9 +14,9 @@ from payment_platform.experiments.config import (
     EXPERIMENT_ID,
     TREATMENT_PERCENTAGE,
 )
+from payment_platform.experiments.events import record_experiment_event
 from payment_platform.experiments.service import assign_and_persist_variant
 
-from payment_platform.experiments.events import record_experiment_event
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -80,4 +80,5 @@ def create_transaction_endpoint(
     return TransactionResponse(
         transaction_id=request.transaction_id,
         status=request.status,
+        experiment_variant=experiment_variant,
     )
