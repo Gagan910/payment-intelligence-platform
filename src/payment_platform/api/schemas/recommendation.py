@@ -18,6 +18,7 @@ class RecommendationRequest(BaseModel):
 
 
 class RecommendationResponse(BaseModel):
+    recommendation_id: int
     transaction_id: str
     recommendation_action: str
     current_method: str
@@ -31,3 +32,8 @@ class RecommendationResponse(BaseModel):
     expected_improvement: float
     reason: str
     model_version: str
+
+
+class RecommendationDecisionRequest(BaseModel):
+    recommendation_id: int = Field(gt=0)
+    accepted: bool

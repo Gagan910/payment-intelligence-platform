@@ -1,3 +1,5 @@
+import pytest
+
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -126,6 +128,16 @@ def cleanup_test_data() -> None:
         conn.close()
 
 
+def create_test_recommendation() -> int:
+    response = client.post("/recommend", json=VALID_REQUEST)
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    return data["recommendation_id"]
+
+
 def test_recommendation_api_returns_success_response():
     cleanup_test_data()
     create_test_transaction()
@@ -137,6 +149,7 @@ def test_recommendation_api_returns_success_response():
 
         data = response.json()
 
+        assert data["recommendation_id"] > 0
         assert data["transaction_id"] == VALID_REQUEST["transaction_id"]
         assert "recommendation_action" in data
         assert "current_method" in data
@@ -207,3 +220,175 @@ def test_recommendation_api_rejects_invalid_hour():
     response = client.post("/recommend", json=invalid_request)
 
     assert response.status_code == 422
+
+
+def test_recommendation_decision_api_accepts_recommendation():
+    cleanup_test_data()
+    create_test_transaction()
+
+    try:
+        recommendation_id = create_test_recommendation()
+
+        response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": True,
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["recommendation_id"] == recommendation_id
+        assert data["accepted"] is True
+
+        conn = get_connection()
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT accepted
+                    FROM recommendations
+                    WHERE recommendation_id = %s
+                    """,
+                    (recommendation_id,),
+                )
+
+                accepted = cursor.fetchone()[0]
+
+            assert accepted is True
+        finally:
+            conn.close()
+    finally:
+        cleanup_test_data()
+
+
+def test_recommendation_decision_api_rejects_recommendation():
+    cleanup_test_data()
+    create_test_transaction()
+
+    try:
+        recommendation_id = create_test_recommendation()
+
+        response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": False,
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["recommendation_id"] == recommendation_id
+        assert data["accepted"] is False
+
+        conn = get_connection()
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT accepted
+                    FROM recommendations
+                    WHERE recommendation_id = %s
+                    """,
+                    (recommendation_id,),
+                )
+
+                accepted = cursor.fetchone()[0]
+
+            assert accepted is False
+        finally:
+            conn.close()
+    finally:
+        cleanup_test_data()
+
+
+def test_recommendation_decision_api_rejects_invalid_recommendation_id():
+    response = client.post(
+        "/recommend/decision",
+        json={
+            "recommendation_id": 0,
+            "accepted": True,
+        },
+    )
+
+    assert response.status_code == 422
+    
+
+def test_recommendation_decision_returns_recommended_method_when_accepted():
+    cleanup_test_data()
+    create_test_transaction()
+
+    request = VALID_REQUEST.copy()
+    request["network_quality"] = "poor"
+    request["hour_of_day"] = 0
+
+    try:
+        recommendation_response = client.post(
+            "/recommend",
+            json=request,
+        )
+
+        assert recommendation_response.status_code == 200
+
+        recommendation_data = recommendation_response.json()
+
+        recommendation_id = recommendation_data["recommendation_id"]
+        recommended_method = recommendation_data["recommended_method"]
+
+        assert recommendation_data["recommendation_action"] == (
+            "RECOMMEND_ALTERNATIVE"
+        )
+        assert recommended_method == "upi"
+
+        response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": True,
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["recommendation_id"] == recommendation_id
+        assert data["accepted"] is True
+        assert data["selected_payment_method"] == recommended_method
+
+    finally:
+        cleanup_test_data()
+
+
+def test_recommendation_decision_returns_current_method_when_rejected():
+    cleanup_test_data()
+    create_test_transaction()
+
+    try:
+        recommendation_id = create_test_recommendation()
+
+        response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": False,
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["recommendation_id"] == recommendation_id
+        assert data["accepted"] is False
+        assert data["selected_payment_method"] == "debit_card"
+    finally:
+        cleanup_test_data()

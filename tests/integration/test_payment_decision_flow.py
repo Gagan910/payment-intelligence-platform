@@ -181,7 +181,7 @@ def test_transaction_prediction_recommendation_flow():
                 conn,
                 transaction_id=TRANSACTION_ID,
                 device_type="mobile",
-                network_quality="good",
+                network_quality="poor",
                 retry_count=0,
                 transaction_velocity=2,
                 user_method_success_rate=0.90,
@@ -190,9 +190,21 @@ def test_transaction_prediction_recommendation_flow():
         finally:
             conn.close()
 
+        prediction_request = {
+            **PREDICTION_REQUEST,
+            "network_quality": "poor",
+            "hour_of_day": 0,
+        }
+
+        recommendation_request = {
+            **RECOMMENDATION_REQUEST,
+            "network_quality": "poor",
+            "hour_of_day": 0,
+        }
+
         prediction_response = client.post(
             "/predict",
-            json=PREDICTION_REQUEST,
+            json=prediction_request,
         )
 
         assert prediction_response.status_code == 200
@@ -205,7 +217,7 @@ def test_transaction_prediction_recommendation_flow():
 
         recommendation_response = client.post(
             "/recommend",
-            json=RECOMMENDATION_REQUEST,
+            json=recommendation_request,
         )
 
         assert recommendation_response.status_code == 200
@@ -214,6 +226,11 @@ def test_transaction_prediction_recommendation_flow():
 
         assert recommendation_data["transaction_id"] == TRANSACTION_ID
         assert recommendation_data["current_method"] == "debit_card"
+        assert (
+            recommendation_data["recommendation_action"]
+            == "RECOMMEND_ALTERNATIVE"
+        )
+        assert recommendation_data["recommended_method"] == "upi"
         assert 0 <= recommendation_data["current_failure_probability"] <= 1
 
         if recommendation_data["recommended_failure_probability"] is not None:
@@ -225,11 +242,31 @@ def test_transaction_prediction_recommendation_flow():
 
         assert recommendation_data["expected_improvement"] >= 0
 
+        recommendation_id = recommendation_data["recommendation_id"]
+
+        decision_response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": True,
+            },
+        )
+
+        assert decision_response.status_code == 200
+
+        decision_data = decision_response.json()
+
+        assert decision_data["recommendation_id"] == recommendation_id
+        assert decision_data["accepted"] is True
+        assert decision_data["selected_payment_method"] == "upi"
+
+        selected_payment_method = decision_data["selected_payment_method"]
+
         payment_attempt_response = client.post(
             "/payment-attempts",
             json={
                 "transaction_id": TRANSACTION_ID,
-                "payment_method": "debit_card",
+                "payment_method": selected_payment_method,
                 "attempt_number": 1,
             },
         )
@@ -239,7 +276,10 @@ def test_transaction_prediction_recommendation_flow():
         payment_attempt_data = payment_attempt_response.json()
 
         assert payment_attempt_data["transaction_id"] == TRANSACTION_ID
-        assert payment_attempt_data["payment_method"] == "debit_card"
+        assert (
+            payment_attempt_data["payment_method"]
+            == selected_payment_method
+        )
         assert payment_attempt_data["attempt_number"] == 1
         assert payment_attempt_data["outcome"] in {"success", "failure"}
 
@@ -289,6 +329,16 @@ def test_transaction_prediction_recommendation_flow():
 
                 cursor.execute(
                     """
+                    SELECT payment_method
+                    FROM payment_attempts
+                    WHERE transaction_id = %s
+                    """,
+                    (TRANSACTION_ID,),
+                )
+                persisted_payment_method = cursor.fetchone()[0]
+
+                cursor.execute(
+                    """
                     SELECT status
                     FROM transactions
                     WHERE transaction_id = %s
@@ -301,6 +351,7 @@ def test_transaction_prediction_recommendation_flow():
             assert prediction_count == 1
             assert recommendation_count == 1
             assert payment_attempt_count == 1
+            assert persisted_payment_method == selected_payment_method
             assert transaction_status == payment_attempt_data["outcome"]
 
         finally:
