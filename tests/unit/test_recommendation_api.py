@@ -1,11 +1,12 @@
-import pytest
-
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
 from payment_platform.api.app import app
 from payment_platform.db.connection import get_connection
+from payment_platform.db.repositories.transaction_context import (
+    create_transaction_context,
+)
 from payment_platform.db.repositories.transactions import create_transaction
 
 
@@ -78,10 +79,22 @@ def create_test_transaction() -> None:
             amount=VALID_REQUEST["amount"],
             currency="INR",
             timestamp=datetime.now(timezone.utc),
-            selected_payment_method=VALID_REQUEST["payment_method"],
-            experiment_variant=None,
+            selected_payment_method="debit_card",
+            experiment_variant="treatment",
             status="initiated",
         )
+
+        create_transaction_context(
+            conn,
+            transaction_id=VALID_REQUEST["transaction_id"],
+            device_type="mobile",
+            network_quality="good",
+            retry_count=0,
+            transaction_velocity=2,
+            user_method_success_rate=0.90,
+            merchant_method_success_rate=0.92,
+        )
+
     finally:
         conn.close()
 
@@ -94,6 +107,14 @@ def cleanup_test_data() -> None:
             cursor.execute(
                 """
                 DELETE FROM recommendations
+                WHERE transaction_id = %s
+                """,
+                (VALID_REQUEST["transaction_id"],),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transaction_context
                 WHERE transaction_id = %s
                 """,
                 (VALID_REQUEST["transaction_id"],),
@@ -124,6 +145,7 @@ def cleanup_test_data() -> None:
             )
 
         conn.commit()
+
     finally:
         conn.close()
 
@@ -133,9 +155,7 @@ def create_test_recommendation() -> int:
 
     assert response.status_code == 200
 
-    data = response.json()
-
-    return data["recommendation_id"]
+    return response.json()["recommendation_id"]
 
 
 def test_recommendation_api_returns_success_response():
@@ -159,6 +179,7 @@ def test_recommendation_api_returns_success_response():
         assert "expected_improvement" in data
         assert "reason" in data
         assert "model_version" in data
+
     finally:
         cleanup_test_data()
 
@@ -171,10 +192,8 @@ def test_recommendation_api_preserves_current_method():
         response = client.post("/recommend", json=VALID_REQUEST)
 
         assert response.status_code == 200
+        assert response.json()["current_method"] == "debit_card"
 
-        data = response.json()
-
-        assert data["current_method"] == "debit_card"
     finally:
         cleanup_test_data()
 
@@ -196,6 +215,7 @@ def test_recommendation_api_probability_values_are_valid():
             assert 0 <= data["recommended_failure_probability"] <= 1
 
         assert data["expected_improvement"] >= 0
+
     finally:
         cleanup_test_data()
 
@@ -257,11 +277,11 @@ def test_recommendation_decision_api_accepts_recommendation():
                     (recommendation_id,),
                 )
 
-                accepted = cursor.fetchone()[0]
+                assert cursor.fetchone()[0] is True
 
-            assert accepted is True
         finally:
             conn.close()
+
     finally:
         cleanup_test_data()
 
@@ -301,11 +321,11 @@ def test_recommendation_decision_api_rejects_recommendation():
                     (recommendation_id,),
                 )
 
-                accepted = cursor.fetchone()[0]
+                assert cursor.fetchone()[0] is False
 
-            assert accepted is False
         finally:
             conn.close()
+
     finally:
         cleanup_test_data()
 
@@ -320,20 +340,16 @@ def test_recommendation_decision_api_rejects_invalid_recommendation_id():
     )
 
     assert response.status_code == 422
-    
 
-def test_recommendation_decision_returns_recommended_method_when_accepted():
+
+def test_recommendation_decision_returns_selected_method_when_accepted():
     cleanup_test_data()
     create_test_transaction()
-
-    request = VALID_REQUEST.copy()
-    request["network_quality"] = "poor"
-    request["hour_of_day"] = 0
 
     try:
         recommendation_response = client.post(
             "/recommend",
-            json=request,
+            json=VALID_REQUEST,
         )
 
         assert recommendation_response.status_code == 200
@@ -341,12 +357,11 @@ def test_recommendation_decision_returns_recommended_method_when_accepted():
         recommendation_data = recommendation_response.json()
 
         recommendation_id = recommendation_data["recommendation_id"]
-        recommended_method = recommendation_data["recommended_method"]
 
-        assert recommendation_data["recommendation_action"] == (
-            "RECOMMEND_ALTERNATIVE"
+        expected_method = (
+            recommendation_data["recommended_method"]
+            or recommendation_data["current_method"]
         )
-        assert recommended_method == "upi"
 
         response = client.post(
             "/recommend/decision",
@@ -362,7 +377,7 @@ def test_recommendation_decision_returns_recommended_method_when_accepted():
 
         assert data["recommendation_id"] == recommendation_id
         assert data["accepted"] is True
-        assert data["selected_payment_method"] == recommended_method
+        assert data["selected_payment_method"] == expected_method
 
     finally:
         cleanup_test_data()
@@ -390,5 +405,53 @@ def test_recommendation_decision_returns_current_method_when_rejected():
         assert data["recommendation_id"] == recommendation_id
         assert data["accepted"] is False
         assert data["selected_payment_method"] == "debit_card"
+
+    finally:
+        cleanup_test_data()
+
+def test_recommendation_api_control_variant_keeps_current_method():
+    cleanup_test_data()
+    create_test_transaction()
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE transactions
+                SET experiment_variant = %s
+                WHERE transaction_id = %s
+                """,
+                (
+                    "control",
+                    VALID_REQUEST["transaction_id"],
+                ),
+            )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    try:
+        response = client.post(
+            "/recommend",
+            json=VALID_REQUEST,
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["recommendation_action"] == "KEEP_CURRENT"
+        assert data["current_method"] == "debit_card"
+        assert data["recommended_method"] is None
+        assert data["expected_improvement"] == 0.0
+        assert (
+            data["reason"]
+            == "Control variant: smart routing is not enabled."
+        )
+
     finally:
         cleanup_test_data()

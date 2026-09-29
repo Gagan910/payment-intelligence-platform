@@ -85,6 +85,30 @@ def setup_test_transaction() -> None:
                 ),
             )
 
+            cursor.execute(
+                """
+                INSERT INTO transaction_context (
+                    transaction_id,
+                    device_type,
+                    network_quality,
+                    retry_count,
+                    transaction_velocity,
+                    user_method_success_rate,
+                    merchant_method_success_rate
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    TEST_TRANSACTION_ID,
+                    "mobile",
+                    "good",
+                    0,
+                    2,
+                    0.90,
+                    0.92,
+                ),
+            )
+
         conn.commit()
 
     finally:
@@ -99,6 +123,14 @@ def cleanup_test_data() -> None:
             cursor.execute(
                 """
                 DELETE FROM predictions
+                WHERE transaction_id = %s
+                """,
+                (TEST_TRANSACTION_ID,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transaction_context
                 WHERE transaction_id = %s
                 """,
                 (TEST_TRANSACTION_ID,),
@@ -213,3 +245,58 @@ def test_prediction_api_rejects_unknown_transaction():
     response = client.post("/predict", json=request)
 
     assert response.status_code == 404
+
+def test_prediction_api_uses_persisted_transaction_context():
+    cleanup_test_data()
+    setup_test_transaction()
+
+    try:
+        request_with_conflicting_context = {
+            **VALID_REQUEST,
+            "network_quality": "poor",
+            "hour_of_day": 0,
+            "device_type": "tablet",
+            "retry_count": 2,
+            "transaction_velocity": 10,
+            "user_method_success_rate": 0.10,
+            "merchant_method_success_rate": 0.10,
+        }
+
+        persisted_request = {
+            **VALID_REQUEST,
+            "network_quality": "good",
+            "hour_of_day": 14,
+            "device_type": "mobile",
+            "retry_count": 0,
+            "transaction_velocity": 2,
+            "user_method_success_rate": 0.90,
+            "merchant_method_success_rate": 0.92,
+        }
+
+        persisted_response = client.post(
+            "/predict",
+            json=persisted_request,
+        )
+
+        conflicting_response = client.post(
+            "/predict",
+            json=request_with_conflicting_context,
+        )
+
+        assert persisted_response.status_code == 200
+        assert conflicting_response.status_code == 200
+
+        persisted_data = persisted_response.json()
+        conflicting_data = conflicting_response.json()
+
+        assert (
+            conflicting_data["failure_probability"]
+            == persisted_data["failure_probability"]
+        )
+        assert (
+            conflicting_data["success_probability"]
+            == persisted_data["success_probability"]
+        )
+
+    finally:
+        cleanup_test_data()

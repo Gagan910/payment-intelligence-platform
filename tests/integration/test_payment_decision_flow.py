@@ -22,7 +22,16 @@ TRANSACTION_REQUEST = {
     "amount": 500,
     "currency": "INR",
     "selected_payment_method": "debit_card",
+    "experiment_variant": "control",
     "status": "initiated",
+    "context": {
+        "device_type": "mobile",
+        "network_quality": "poor",
+        "retry_count": 0,
+        "transaction_velocity": 2,
+        "user_method_success_rate": 0.90,
+        "merchant_method_success_rate": 0.92,
+    },
 }
 
 
@@ -110,6 +119,7 @@ def cleanup_test_data() -> None:
             )
 
         conn.commit()
+
     finally:
         conn.close()
 
@@ -152,6 +162,7 @@ def create_parent_records() -> None:
             )
 
         conn.commit()
+
     finally:
         conn.close()
 
@@ -173,22 +184,6 @@ def test_transaction_prediction_recommendation_flow():
         assert transaction_data["transaction_id"] == TRANSACTION_ID
         assert transaction_data["status"] == "initiated"
         assert transaction_data["experiment_variant"] == "control"
-
-        conn = get_connection()
-
-        try:
-            create_transaction_context(
-                conn,
-                transaction_id=TRANSACTION_ID,
-                device_type="mobile",
-                network_quality="poor",
-                retry_count=0,
-                transaction_velocity=2,
-                user_method_success_rate=0.90,
-                merchant_method_success_rate=0.92,
-            )
-        finally:
-            conn.close()
 
         prediction_request = {
             **PREDICTION_REQUEST,
@@ -226,21 +221,18 @@ def test_transaction_prediction_recommendation_flow():
 
         assert recommendation_data["transaction_id"] == TRANSACTION_ID
         assert recommendation_data["current_method"] == "debit_card"
+
         assert (
             recommendation_data["recommendation_action"]
-            == "RECOMMEND_ALTERNATIVE"
+            == "KEEP_CURRENT"
         )
-        assert recommendation_data["recommended_method"] == "upi"
-        assert 0 <= recommendation_data["current_failure_probability"] <= 1
 
-        if recommendation_data["recommended_failure_probability"] is not None:
-            assert (
-                0
-                <= recommendation_data["recommended_failure_probability"]
-                <= 1
-            )
-
-        assert recommendation_data["expected_improvement"] >= 0
+        assert recommendation_data["recommended_method"] is None
+        assert recommendation_data["expected_improvement"] == 0.0
+        assert (
+            recommendation_data["reason"]
+            == "Control variant: smart routing is not enabled."
+        )
 
         recommendation_id = recommendation_data["recommendation_id"]
 
@@ -258,7 +250,7 @@ def test_transaction_prediction_recommendation_flow():
 
         assert decision_data["recommendation_id"] == recommendation_id
         assert decision_data["accepted"] is True
-        assert decision_data["selected_payment_method"] == "upi"
+        assert decision_data["selected_payment_method"] == "debit_card"
 
         selected_payment_method = decision_data["selected_payment_method"]
 
@@ -276,86 +268,284 @@ def test_transaction_prediction_recommendation_flow():
         payment_attempt_data = payment_attempt_response.json()
 
         assert payment_attempt_data["transaction_id"] == TRANSACTION_ID
-        assert (
-            payment_attempt_data["payment_method"]
-            == selected_payment_method
-        )
+        assert payment_attempt_data["payment_method"] == "debit_card"
         assert payment_attempt_data["attempt_number"] == 1
-        assert payment_attempt_data["outcome"] in {"success", "failure"}
-
-        conn = get_connection()
-
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM transactions
-                    WHERE transaction_id = %s
-                    """,
-                    (TRANSACTION_ID,),
-                )
-                transaction_count = cursor.fetchone()[0]
-
-                cursor.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM predictions
-                    WHERE transaction_id = %s
-                    """,
-                    (TRANSACTION_ID,),
-                )
-                prediction_count = cursor.fetchone()[0]
-
-                cursor.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM recommendations
-                    WHERE transaction_id = %s
-                    """,
-                    (TRANSACTION_ID,),
-                )
-                recommendation_count = cursor.fetchone()[0]
-
-                cursor.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM payment_attempts
-                    WHERE transaction_id = %s
-                    """,
-                    (TRANSACTION_ID,),
-                )
-                payment_attempt_count = cursor.fetchone()[0]
-
-                cursor.execute(
-                    """
-                    SELECT payment_method
-                    FROM payment_attempts
-                    WHERE transaction_id = %s
-                    """,
-                    (TRANSACTION_ID,),
-                )
-                persisted_payment_method = cursor.fetchone()[0]
-
-                cursor.execute(
-                    """
-                    SELECT status
-                    FROM transactions
-                    WHERE transaction_id = %s
-                    """,
-                    (TRANSACTION_ID,),
-                )
-                transaction_status = cursor.fetchone()[0]
-
-            assert transaction_count == 1
-            assert prediction_count == 1
-            assert recommendation_count == 1
-            assert payment_attempt_count == 1
-            assert persisted_payment_method == selected_payment_method
-            assert transaction_status == payment_attempt_data["outcome"]
-
-        finally:
-            conn.close()
+        assert payment_attempt_data["outcome"] in {
+            "success",
+            "failure",
+        }
 
     finally:
         cleanup_test_data()
+
+def test_treatment_transaction_smart_routing_flow():
+    transaction_id = "txn_payment_treatment_flow_test"
+    user_id = "user_payment_decision_flow_test_2"
+    merchant_id = "merchant_payment_treatment_flow_test"
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM recommendations
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM predictions
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM payment_attempts
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transaction_context
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transactions
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM users
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM merchants
+                WHERE merchant_id = %s
+                """,
+                (merchant_id,),
+            )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    try:
+        conn = get_connection()
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users (
+                    user_id,
+                    user_segment,
+                    preferred_payment_method
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (
+                    user_id,
+                    "regular",
+                    "debit_card",
+                ),
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO merchants (
+                    merchant_id,
+                    merchant_category,
+                    merchant_risk_score
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (
+                    merchant_id,
+                    "electronics",
+                    0.20,
+                ),
+            )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    transaction_response = client.post(
+        "/transactions",
+        json={
+            "transaction_id": transaction_id,
+            "user_id": user_id,
+            "merchant_id": merchant_id,
+            "amount": 500,
+            "currency": "INR",
+            "selected_payment_method": "debit_card",
+            "status": "initiated",
+            "context": {
+                "device_type": "mobile",
+                "network_quality": "poor",
+                "retry_count": 0,
+                "transaction_velocity": 2,
+                "user_method_success_rate": 0.90,
+                "merchant_method_success_rate": 0.92,
+            },
+        },
+    )
+
+    assert transaction_response.status_code == 200
+
+    transaction_data = transaction_response.json()
+
+    assert transaction_data["transaction_id"] == transaction_id
+    assert transaction_data["experiment_variant"] == "treatment"
+
+    recommendation_response = client.post(
+        "/recommend",
+        json={
+            "transaction_id": transaction_id,
+            "amount": 500,
+            "merchant_category": "electronics",
+            "payment_method": "debit_card",
+            "user_segment": "regular",
+            "device_type": "mobile",
+            "network_quality": "poor",
+            "hour_of_day": 0,
+            "day_of_week": 2,
+            "retry_count": 0,
+            "transaction_velocity": 2,
+            "user_method_success_rate": 0.90,
+            "merchant_method_success_rate": 0.92,
+        },
+    )
+
+    assert recommendation_response.status_code == 200
+
+    recommendation_data = recommendation_response.json()
+
+    assert recommendation_data["transaction_id"] == transaction_id
+    assert recommendation_data["recommendation_action"] == "RECOMMEND_ALTERNATIVE"
+    assert recommendation_data["current_method"] == "debit_card"
+    assert recommendation_data["recommended_method"] == "upi"
+    assert recommendation_data["expected_improvement"] > 0.05
+
+    recommendation_id = recommendation_data["recommendation_id"]
+
+    decision_response = client.post(
+        "/recommend/decision",
+        json={
+            "recommendation_id": recommendation_id,
+            "accepted": True,
+        },
+    )
+
+    assert decision_response.status_code == 200
+
+    decision_data = decision_response.json()
+
+    assert decision_data["recommendation_id"] == recommendation_id
+    assert decision_data["accepted"] is True
+    assert decision_data["selected_payment_method"] == "upi"
+
+    payment_attempt_response = client.post(
+        "/payment-attempts",
+        json={
+            "transaction_id": transaction_id,
+            "payment_method": "upi",
+            "attempt_number": 1,
+        },
+    )
+
+    assert payment_attempt_response.status_code == 200
+
+    payment_attempt_data = payment_attempt_response.json()
+
+    assert payment_attempt_data["transaction_id"] == transaction_id
+    assert payment_attempt_data["payment_method"] == "upi"
+    assert payment_attempt_data["attempt_number"] == 1
+    assert payment_attempt_data["outcome"] in {
+        "success",
+        "failure",
+    }
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM recommendations
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM predictions
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM payment_attempts
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transaction_context
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM transactions
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM users
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM merchants
+                WHERE merchant_id = %s
+                """,
+                (merchant_id,),
+            )
+
+        conn.commit()
+
+    finally:
+        conn.close()

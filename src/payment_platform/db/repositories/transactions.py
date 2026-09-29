@@ -17,6 +17,7 @@ def create_transaction(
     selected_payment_method: str,
     experiment_variant: str | None,
     status: str,
+    commit: bool = True,
 ) -> None:
     """Insert a transaction into the database."""
 
@@ -53,7 +54,8 @@ def create_transaction(
             ),
         )
 
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def get_transaction(

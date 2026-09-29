@@ -14,6 +14,9 @@ from payment_platform.experiments.config import (
     EXPERIMENT_ID,
     TREATMENT_PERCENTAGE,
 )
+from payment_platform.db.repositories.transaction_context import (
+    create_transaction_context,
+)
 from payment_platform.experiments.events import record_experiment_event
 from payment_platform.experiments.service import assign_and_persist_variant
 
@@ -53,6 +56,23 @@ def create_transaction_endpoint(
             selected_payment_method=request.selected_payment_method,
             experiment_variant=experiment_variant,
             status=request.status,
+            commit=False,
+        )
+
+        create_transaction_context(
+            conn,
+            transaction_id=request.transaction_id,
+            device_type=request.context.device_type,
+            network_quality=request.context.network_quality,
+            retry_count=request.context.retry_count,
+            transaction_velocity=request.context.transaction_velocity,
+            user_method_success_rate=(
+                request.context.user_method_success_rate
+            ),
+            merchant_method_success_rate=(
+                request.context.merchant_method_success_rate
+            ),
+            commit=False,
         )
 
         record_experiment_event(

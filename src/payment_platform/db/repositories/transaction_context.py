@@ -13,6 +13,7 @@ def create_transaction_context(
     transaction_velocity: int,
     user_method_success_rate: float,
     merchant_method_success_rate: float,
+    commit: bool = True,
 ) -> None:
     """Insert the pre-attempt context for a transaction."""
     query = """
@@ -44,7 +45,8 @@ def create_transaction_context(
             ),
         )
 
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def get_transaction_context(

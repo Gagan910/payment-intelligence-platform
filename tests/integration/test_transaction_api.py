@@ -112,6 +112,14 @@ def test_create_transaction_api() -> None:
             "selected_payment_method": "upi",
             "experiment_variant": "control",
             "status": "initiated",
+            "context": {
+                "device_type": "mobile",
+                "network_quality": "good",
+                "retry_count": 0,
+                "transaction_velocity": 2,
+                "user_method_success_rate": 0.90,
+                "merchant_method_success_rate": 0.92,
+            },
         },
     )
 
@@ -143,6 +151,31 @@ def test_create_transaction_api() -> None:
             )
 
             assert cursor.fetchone()[0] == 1
+
+            cursor.execute(
+                """
+                SELECT
+                    device_type,
+                    network_quality,
+                    retry_count,
+                    transaction_velocity,
+                    user_method_success_rate,
+                    merchant_method_success_rate
+                FROM transaction_context
+                WHERE transaction_id = %s
+                """,
+                (TEST_TRANSACTION_ID,),
+            )
+
+            context = cursor.fetchone()
+
+            assert context is not None
+            assert context[0] == "mobile"
+            assert context[1] == "good"
+            assert context[2] == 0
+            assert context[3] == 2
+            assert float(context[4]) == 0.90
+            assert float(context[5]) == 0.92
 
             cursor.execute(
                 """

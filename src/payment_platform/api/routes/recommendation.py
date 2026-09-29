@@ -17,13 +17,17 @@ from payment_platform.db.repositories.recommendations import (
     update_recommendation_decision,
 )
 from payment_platform.db.repositories.transactions import get_transaction
+from payment_platform.experiments.events import record_experiment_event
+from payment_platform.experiments.policy import should_use_smart_routing
 from payment_platform.ml.predictor import PaymentPredictor
 from payment_platform.recommendation.counterfactual import (
     predict_counterfactual_failure_probabilities,
 )
-from payment_platform.recommendation.engine import generate_recommendation
+from payment_platform.recommendation.engine import (
+    RecommendationResult,
+    generate_recommendation,
+)
 from payment_platform.recommendation.selection import select_payment_method
-from payment_platform.experiments.events import record_experiment_event
 
 
 router = APIRouter(prefix="/recommend", tags=["Recommendation"])
@@ -35,26 +39,65 @@ predictor = PaymentPredictor()
 def recommend(
     request: RecommendationRequest,
 ) -> RecommendationResponse:
-    transaction = request.model_dump(exclude={"transaction_id"})
-    transaction_series = pd.Series(transaction)
-
-    failure_probabilities = (
-        predict_counterfactual_failure_probabilities(
-            model=predictor.model,
-            transaction=transaction_series,
-        )
-    )
-
-    recommendation = generate_recommendation(
-        current_method=request.payment_method,
-        method_failure_probabilities=failure_probabilities,
-    )
-
-    recommendation_timestamp = datetime.now(timezone.utc)
-
     conn = get_connection()
 
     try:
+        transaction_record = get_transaction(
+            conn,
+            transaction_id=request.transaction_id,
+        )
+
+        if transaction_record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Transaction '{request.transaction_id}' does not exist."
+                ),
+            )
+
+        experiment_variant = transaction_record["experiment_variant"]
+
+        try:
+            use_smart_routing = should_use_smart_routing(
+                experiment_variant
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=str(exc),
+            ) from exc
+
+        if use_smart_routing:
+            transaction = request.model_dump(
+                exclude={"transaction_id"}
+            )
+            transaction_series = pd.Series(transaction)
+
+            failure_probabilities = (
+                predict_counterfactual_failure_probabilities(
+                    model=predictor.model,
+                    transaction=transaction_series,
+                )
+            )
+
+            recommendation = generate_recommendation(
+                current_method=request.payment_method,
+                method_failure_probabilities=failure_probabilities,
+            )
+
+        else:
+            recommendation = RecommendationResult(
+                recommendation_action="KEEP_CURRENT",
+                current_method=request.payment_method,
+                recommended_method=None,
+                current_failure_probability=0.0,
+                recommended_failure_probability=None,
+                expected_improvement=0.0,
+                reason="Control variant: smart routing is not enabled.",
+            )
+
+        recommendation_timestamp = datetime.now(timezone.utc)
+
         try:
             recommendation_id = create_recommendation(
                 conn,
@@ -77,6 +120,17 @@ def recommend(
                     "does not exist."
                 ),
             ) from exc
+
+        conn.commit()
+
+    except HTTPException:
+        conn.rollback()
+        raise
+
+    except Exception:
+        conn.rollback()
+        raise
+
     finally:
         conn.close()
 
@@ -143,10 +197,6 @@ def record_recommendation_decision(
         recommended_method = recommendation["recommended_method"]
 
         if recommended_method is not None:
-            from payment_platform.recommendation.engine import (
-                RecommendationResult,
-            )
-
             recommendation_result = RecommendationResult(
                 recommendation_action="RECOMMEND_ALTERNATIVE",
                 current_method=current_method,
@@ -157,10 +207,6 @@ def record_recommendation_decision(
                 reason=str(recommendation["reason"]),
             )
         else:
-            from payment_platform.recommendation.engine import (
-                RecommendationResult,
-            )
-
             recommendation_result = RecommendationResult(
                 recommendation_action="KEEP_CURRENT",
                 current_method=current_method,
