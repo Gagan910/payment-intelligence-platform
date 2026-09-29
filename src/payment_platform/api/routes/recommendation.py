@@ -16,7 +16,10 @@ from payment_platform.db.repositories.recommendations import (
     get_recommendation,
     update_recommendation_decision,
 )
-from payment_platform.db.repositories.transactions import get_transaction
+from payment_platform.db.repositories.transactions import (
+    get_transaction,
+    get_transaction_context,
+)
 from payment_platform.experiments.events import record_experiment_event
 from payment_platform.experiments.policy import should_use_smart_routing
 from payment_platform.ml.predictor import PaymentPredictor
@@ -39,6 +42,8 @@ predictor = PaymentPredictor()
 def recommend(
     request: RecommendationRequest,
 ) -> RecommendationResponse:
+    """Generate a recommendation using persisted transaction data."""
+
     conn = get_connection()
 
     try:
@@ -67,11 +72,35 @@ def recommend(
                 detail=str(exc),
             ) from exc
 
-        if use_smart_routing:
-            transaction = request.model_dump(
-                exclude={"transaction_id"}
+        transaction_context = get_transaction_context(
+            conn,
+            transaction_id=request.transaction_id,
+        )
+
+        if transaction_context is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Transaction context for "
+                    f"'{request.transaction_id}' does not exist."
+                ),
             )
-            transaction_series = pd.Series(transaction)
+
+        current_method = transaction_context["payment_method"]
+
+        if current_method is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Transaction '{request.transaction_id}' "
+                    "does not have a selected payment method."
+                ),
+            )
+
+        if use_smart_routing:
+            transaction_series = pd.Series(
+                transaction_context
+            )
 
             failure_probabilities = (
                 predict_counterfactual_failure_probabilities(
@@ -81,14 +110,14 @@ def recommend(
             )
 
             recommendation = generate_recommendation(
-                current_method=request.payment_method,
+                current_method=current_method,
                 method_failure_probabilities=failure_probabilities,
             )
 
         else:
             recommendation = RecommendationResult(
                 recommendation_action="KEEP_CURRENT",
-                current_method=request.payment_method,
+                current_method=current_method,
                 recommended_method=None,
                 current_failure_probability=0.0,
                 recommended_failure_probability=None,
@@ -114,11 +143,8 @@ def recommend(
         except Exception as exc:
             conn.rollback()
             raise HTTPException(
-                status_code=404,
-                detail=(
-                    f"Transaction '{request.transaction_id}' "
-                    "does not exist."
-                ),
+                status_code=500,
+                detail="Failed to persist recommendation.",
             ) from exc
 
         conn.commit()

@@ -15,18 +15,6 @@ client = TestClient(app)
 
 VALID_REQUEST = {
     "transaction_id": "txn_recommendation_test",
-    "amount": 500,
-    "merchant_category": "electronics",
-    "payment_method": "debit_card",
-    "user_segment": "regular",
-    "device_type": "mobile",
-    "network_quality": "good",
-    "hour_of_day": 14,
-    "day_of_week": 2,
-    "retry_count": 0,
-    "transaction_velocity": 2,
-    "user_method_success_rate": 0.90,
-    "merchant_method_success_rate": 0.92,
 }
 
 
@@ -76,7 +64,7 @@ def create_test_transaction() -> None:
             transaction_id=VALID_REQUEST["transaction_id"],
             user_id="user_recommendation_test",
             merchant_id="merchant_recommendation_test",
-            amount=VALID_REQUEST["amount"],
+            amount=500,
             currency="INR",
             timestamp=datetime.now(timezone.utc),
             selected_payment_method="debit_card",
@@ -151,7 +139,10 @@ def cleanup_test_data() -> None:
 
 
 def create_test_recommendation() -> int:
-    response = client.post("/recommend", json=VALID_REQUEST)
+    response = client.post(
+        "/recommend",
+        json=VALID_REQUEST,
+    )
 
     assert response.status_code == 200
 
@@ -163,7 +154,10 @@ def test_recommendation_api_returns_success_response():
     create_test_transaction()
 
     try:
-        response = client.post("/recommend", json=VALID_REQUEST)
+        response = client.post(
+            "/recommend",
+            json=VALID_REQUEST,
+        )
 
         assert response.status_code == 200
 
@@ -189,7 +183,10 @@ def test_recommendation_api_preserves_current_method():
     create_test_transaction()
 
     try:
-        response = client.post("/recommend", json=VALID_REQUEST)
+        response = client.post(
+            "/recommend",
+            json=VALID_REQUEST,
+        )
 
         assert response.status_code == 200
         assert response.json()["current_method"] == "debit_card"
@@ -203,7 +200,10 @@ def test_recommendation_api_probability_values_are_valid():
     create_test_transaction()
 
     try:
-        response = client.post("/recommend", json=VALID_REQUEST)
+        response = client.post(
+            "/recommend",
+            json=VALID_REQUEST,
+        )
 
         assert response.status_code == 200
 
@@ -220,26 +220,24 @@ def test_recommendation_api_probability_values_are_valid():
         cleanup_test_data()
 
 
-def test_recommendation_api_rejects_invalid_amount():
-    invalid_request = {
-        **VALID_REQUEST,
-        "amount": 0,
-    }
-
-    response = client.post("/recommend", json=invalid_request)
+def test_recommendation_api_rejects_missing_transaction_id():
+    response = client.post(
+        "/recommend",
+        json={},
+    )
 
     assert response.status_code == 422
 
 
-def test_recommendation_api_rejects_invalid_hour():
-    invalid_request = {
-        **VALID_REQUEST,
-        "hour_of_day": 24,
-    }
+def test_recommendation_api_rejects_unknown_transaction():
+    response = client.post(
+        "/recommend",
+        json={
+            "transaction_id": "nonexistent_transaction",
+        },
+    )
 
-    response = client.post("/recommend", json=invalid_request)
-
-    assert response.status_code == 422
+    assert response.status_code == 404
 
 
 def test_recommendation_decision_api_accepts_recommendation():
@@ -409,6 +407,7 @@ def test_recommendation_decision_returns_current_method_when_rejected():
     finally:
         cleanup_test_data()
 
+
 def test_recommendation_api_control_variant_keeps_current_method():
     cleanup_test_data()
     create_test_transaction()
@@ -455,3 +454,4 @@ def test_recommendation_api_control_variant_keeps_current_method():
 
     finally:
         cleanup_test_data()
+        

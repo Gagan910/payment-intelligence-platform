@@ -1,0 +1,340 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    color: #172033;
+    background: #f4f7fb;
+}
+
+body {
+    min-height: 100vh;
+    background:
+        radial-gradient(
+            circle at top right,
+            #dce8ff 0,
+            transparent 32%
+        ),
+        #f4f7fb;
+}
+
+.checkout-container {
+    width: min(720px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 48px 0;
+}
+
+.checkout-header {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: #5268d9;
+    margin-bottom: 8px;
+}
+
+.checkout-header h1 {
+    font-size: 34px;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    color: #687386;
+    font-size: 15px;
+}
+
+.checkout-card {
+    background: #ffffff;
+    border: 1px solid #e2e7f0;
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 18px 50px rgba(31, 42, 68, 0.08);
+}
+
+.merchant-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 24px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid #e8ebf2;
+}
+
+.section-label {
+    display: block;
+    color: #7a8497;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+
+.merchant-section h2 {
+    font-size: 20px;
+}
+
+.amount-display {
+    text-align: right;
+}
+
+.amount-display strong {
+    font-size: 24px;
+}
+
+.form-group {
+    margin-bottom: 22px;
+}
+
+.form-group > label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+input[type="number"],
+select {
+    width: 100%;
+    height: 46px;
+    border: 1px solid #d7ddea;
+    border-radius: 10px;
+    padding: 0 13px;
+    font-size: 15px;
+    color: #172033;
+    background: #ffffff;
+    outline: none;
+}
+
+input[type="number"]:focus,
+select:focus {
+    border-color: #5268d9;
+    box-shadow: 0 0 0 3px rgba(82, 104, 217, 0.12);
+}
+
+.payment-methods {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.payment-method {
+    display: flex;
+    align-items: center;
+    min-height: 52px;
+    padding: 0 14px;
+    border: 1px solid #d7ddea;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.payment-method:hover {
+    border-color: #5268d9;
+    background: #f8f9ff;
+}
+
+.payment-method input {
+    margin-right: 10px;
+}
+
+.payment-method span {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+button {
+    width: 100%;
+    min-height: 46px;
+    border: none;
+    border-radius: 10px;
+    background: #5268d9;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+button:hover {
+    opacity: 0.92;
+}
+
+.status-panel,
+.recommendation-panel,
+.payment-panel,
+.result-panel,
+.error-panel {
+    margin-top: 20px;
+    padding: 22px;
+    border-radius: 14px;
+}
+
+.status-panel {
+    background: #f7f8fc;
+    border: 1px solid #e3e7ef;
+    text-align: center;
+}
+
+.status-panel h3,
+.recommendation-panel h3,
+.payment-panel h3,
+.result-panel h3 {
+    margin-bottom: 14px;
+}
+
+.probability-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.probability-grid > div,
+.recommendation-details > div {
+    background: #ffffff;
+    border: 1px solid #e3e7ef;
+    border-radius: 10px;
+    padding: 14px;
+}
+
+.probability-grid span,
+.recommendation-details span {
+    display: block;
+    color: #7a8497;
+    font-size: 12px;
+    margin-bottom: 5px;
+}
+
+.probability-grid strong {
+    font-size: 22px;
+}
+
+.recommendation-panel {
+    background: #f4f6ff;
+    border: 1px solid #d9def8;
+}
+
+.recommendation-panel p:not(.section-label) {
+    color: #596477;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.recommendation-details {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 18px 0;
+}
+
+.recommendation-details strong {
+    font-size: 14px;
+}
+
+.recommendation-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.recommendation-actions button:last-child {
+    background: #e9edf5;
+    color: #263148;
+}
+
+.payment-panel {
+    background: #f7f8fc;
+    border: 1px solid #e3e7ef;
+}
+
+.payment-panel p {
+    color: #657085;
+    margin-bottom: 18px;
+}
+
+.result-panel {
+    text-align: center;
+    background: #f4f8f5;
+    border: 1px solid #d8e9dd;
+}
+
+.result-panel p {
+    color: #657085;
+    margin-bottom: 18px;
+}
+
+.error-panel {
+    background: #fff5f5;
+    border: 1px solid #f0cccc;
+    color: #b23a3a;
+}
+
+.spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 12px;
+    border: 3px solid #d9def0;
+    border-top-color: #5268d9;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.hidden {
+    display: none !important;
+}
+
+footer {
+    text-align: center;
+    padding: 18px 0;
+    color: #8992a3;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 600px) {
+    .checkout-container {
+        padding: 28px 0;
+    }
+
+    .checkout-card {
+        padding: 20px;
+    }
+
+    .merchant-section {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .amount-display {
+        text-align: left;
+    }
+
+    .payment-methods,
+    .probability-grid,
+    .recommendation-details,
+    .recommendation-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .checkout-header h1 {
+        font-size: 28px;
+    }
+}

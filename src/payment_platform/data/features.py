@@ -72,6 +72,27 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
         2 * np.pi * features["day_of_week"] / 7
     )
 
+    # Explicit categorical interaction features.
+    # These allow linear models such as Logistic Regression
+    # to learn context-specific payment method behavior.
+    features["merchant_payment_method"] = (
+        features["merchant_category"].astype(str)
+        + "__"
+        + features["payment_method"].astype(str)
+    )
+
+    features["device_payment_method"] = (
+        features["device_type"].astype(str)
+        + "__"
+        + features["payment_method"].astype(str)
+    )
+
+    features["network_payment_method"] = (
+        features["network_quality"].astype(str)
+        + "__"
+        + features["payment_method"].astype(str)
+    )
+
     return features
 
 

@@ -45,6 +45,7 @@ NETWORK_QUALITY: Final[tuple[str, ...]] = (
     "excellent",
 )
 
+
 METHOD_FAILURE_LOG_ODDS: Final[dict[str, float]] = {
     "upi": -2.20,
     "credit_card": -2.00,
@@ -53,12 +54,33 @@ METHOD_FAILURE_LOG_ODDS: Final[dict[str, float]] = {
     "wallet": -1.95,
 }
 
+
 NETWORK_FAILURE_EFFECT: Final[dict[str, float]] = {
     "poor": 0.90,
     "average": 0.30,
     "good": 0.00,
     "excellent": -0.20,
 }
+
+
+MERCHANT_METHOD_INTERACTION: Final[dict[str, dict[str, float]]] = {
+    "electronics": {"credit_card": -0.35},
+    "travel": {"credit_card": -0.40},
+    "food": {"upi": -0.10},
+    "grocery": {"upi": -0.10},
+    "entertainment": {"wallet": -0.35},
+    "healthcare": {"credit_card": -0.30},
+    "education": {"net_banking": -0.60},
+    "fashion": {"wallet": -0.35},
+}
+
+
+DEVICE_METHOD_INTERACTION: Final[dict[str, dict[str, float]]] = {
+    "mobile": {"upi": -0.25},
+    "desktop": {"credit_card": -0.10},
+    "tablet": {"wallet": -0.10},
+}
+
 
 @dataclass(frozen=True)
 class TransactionContext:
@@ -136,7 +158,9 @@ def calculate_failure_probability(
 
     required_columns = {
         "amount",
+        "merchant_category",
         "payment_method",
+        "device_type",
         "network_quality",
         "retry_count",
         "transaction_velocity",
@@ -174,8 +198,39 @@ def calculate_failure_probability(
         dtype=float,
     )
 
+    # Merchant category can favor specific payment methods.
+    merchant_method_effect = np.array(
+        [
+            MERCHANT_METHOD_INTERACTION.get(
+                category,
+                {},
+            ).get(method, 0.0)
+            for category, method in zip(
+                transactions["merchant_category"],
+                transactions["payment_method"],
+            )
+        ],
+        dtype=float,
+    )
+
+    # Device type can favor specific payment methods.
+    device_method_effect = np.array(
+        [
+            DEVICE_METHOD_INTERACTION.get(
+                device,
+                {},
+            ).get(method, 0.0)
+            for device, method in zip(
+                transactions["device_type"],
+                transactions["payment_method"],
+            )
+        ],
+        dtype=float,
+    )
+
     # Retry activity and high transaction velocity increase risk.
     retry_effect = transactions["retry_count"].to_numpy() * 0.35
+
     velocity_effect = (
         np.maximum(
             transactions["transaction_velocity"].to_numpy() - 3,
@@ -187,12 +242,18 @@ def calculate_failure_probability(
     # Lower historical success rates increase current risk.
     user_history_effect = (
         0.90
-        * (1.0 - transactions["user_method_success_rate"].to_numpy())
+        * (
+            1.0
+            - transactions["user_method_success_rate"].to_numpy()
+        )
     )
 
     merchant_history_effect = (
         1.10
-        * (1.0 - transactions["merchant_method_success_rate"].to_numpy())
+        * (
+            1.0
+            - transactions["merchant_method_success_rate"].to_numpy()
+        )
     )
 
     # Mild temporal effect for late-night transactions.
@@ -207,6 +268,8 @@ def calculate_failure_probability(
         score
         + amount_effect
         + network_effect
+        + merchant_method_effect
+        + device_method_effect
         + retry_effect
         + velocity_effect
         + user_history_effect
@@ -275,22 +338,45 @@ def generate_transactions(
     """
 
     if n_transactions <= 0:
-        raise ValueError("n_transactions must be greater than zero.")
+        raise ValueError(
+            "n_transactions must be greater than zero."
+        )
 
     rng = np.random.default_rng(seed)
 
-    user_count = max(1_000, n_transactions // 5)
-    merchant_count = max(100, n_transactions // 50)
+    user_count = max(
+        1_000,
+        n_transactions // 5,
+    )
+
+    merchant_count = max(
+        100,
+        n_transactions // 50,
+    )
 
     user_ids = np.array(
-        [f"user_{index:06d}" for index in range(1, user_count + 1)]
-    )
-    merchant_ids = np.array(
-        [f"merchant_{index:05d}" for index in range(1, merchant_count + 1)]
+        [
+            f"user_{index:06d}"
+            for index in range(1, user_count + 1)
+        ]
     )
 
-    selected_users = rng.choice(user_ids, size=n_transactions)
-    selected_merchants = rng.choice(merchant_ids, size=n_transactions)
+    merchant_ids = np.array(
+        [
+            f"merchant_{index:05d}"
+            for index in range(1, merchant_count + 1)
+        ]
+    )
+
+    selected_users = rng.choice(
+        user_ids,
+        size=n_transactions,
+    )
+
+    selected_merchants = rng.choice(
+        merchant_ids,
+        size=n_transactions,
+    )
 
     merchant_categories = rng.choice(
         MERCHANT_CATEGORIES,
@@ -324,11 +410,19 @@ def generate_transactions(
     # Log-normal distribution produces mostly small/medium payments
     # with a realistic long tail of larger transactions.
     amounts = np.round(
-        rng.lognormal(mean=6.2, sigma=0.85, size=n_transactions),
+        rng.lognormal(
+            mean=6.2,
+            sigma=0.85,
+            size=n_transactions,
+        ),
         2,
     )
 
-    amounts = np.clip(amounts, 50.0, 100_000.0)
+    amounts = np.clip(
+        amounts,
+        50.0,
+        100_000.0,
+    )
 
     timestamps = pd.to_datetime(
         rng.integers(
@@ -354,14 +448,20 @@ def generate_transactions(
 
     user_success_rates = np.array(
         [
-            _generate_user_method_success_rate(rng, segment)
+            _generate_user_method_success_rate(
+                rng,
+                segment,
+            )
             for segment in user_segments
         ]
     )
 
     merchant_success_rates = np.array(
         [
-            _generate_merchant_method_success_rate(rng, category)
+            _generate_merchant_method_success_rate(
+                rng,
+                category,
+            )
             for category in merchant_categories
         ]
     )
@@ -413,7 +513,9 @@ def generate_transaction_contexts(
 
     return [
         TransactionContext(**row)
-        for row in dataframe.to_dict(orient="records")
+        for row in dataframe.to_dict(
+            orient="records"
+        )
     ]
 
 
@@ -423,5 +525,8 @@ def contexts_to_dataframe(
     """Convert transaction contexts to a DataFrame."""
 
     return pd.DataFrame(
-        [asdict(context) for context in contexts]
+        [
+            asdict(context)
+            for context in contexts
+        ]
     )

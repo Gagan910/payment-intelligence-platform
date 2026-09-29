@@ -12,18 +12,6 @@ TEST_TRANSACTION_ID = "prediction_api_test_transaction"
 
 VALID_REQUEST = {
     "transaction_id": TEST_TRANSACTION_ID,
-    "amount": 500,
-    "merchant_category": "electronics",
-    "payment_method": "debit_card",
-    "user_segment": "regular",
-    "device_type": "mobile",
-    "network_quality": "good",
-    "hour_of_day": 14,
-    "day_of_week": 2,
-    "retry_count": 0,
-    "transaction_velocity": 2,
-    "user_method_success_rate": 0.90,
-    "merchant_method_success_rate": 0.92,
 }
 
 
@@ -70,7 +58,8 @@ def setup_test_transaction() -> None:
                     status
                 )
                 VALUES (
-                    %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s
+                    %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
+                    %s, %s, %s
                 )
                 """,
                 (
@@ -204,41 +193,18 @@ def test_prediction_api_probability_values_are_valid():
         cleanup_test_data()
 
 
-def test_prediction_api_rejects_invalid_amount():
+def test_prediction_api_rejects_missing_transaction_id():
     cleanup_test_data()
-    setup_test_transaction()
 
-    try:
-        invalid_request = {**VALID_REQUEST, "amount": 0}
+    response = client.post("/predict", json={})
 
-        response = client.post("/predict", json=invalid_request)
-
-        assert response.status_code == 422
-
-    finally:
-        cleanup_test_data()
-
-
-def test_prediction_api_rejects_invalid_hour():
-    cleanup_test_data()
-    setup_test_transaction()
-
-    try:
-        invalid_request = {**VALID_REQUEST, "hour_of_day": 24}
-
-        response = client.post("/predict", json=invalid_request)
-
-        assert response.status_code == 422
-
-    finally:
-        cleanup_test_data()
+    assert response.status_code == 422
 
 
 def test_prediction_api_rejects_unknown_transaction():
     cleanup_test_data()
 
     request = {
-        **VALID_REQUEST,
         "transaction_id": "nonexistent_transaction",
     }
 
@@ -246,57 +212,37 @@ def test_prediction_api_rejects_unknown_transaction():
 
     assert response.status_code == 404
 
+
 def test_prediction_api_uses_persisted_transaction_context():
     cleanup_test_data()
     setup_test_transaction()
 
     try:
-        request_with_conflicting_context = {
-            **VALID_REQUEST,
-            "network_quality": "poor",
-            "hour_of_day": 0,
-            "device_type": "tablet",
-            "retry_count": 2,
-            "transaction_velocity": 10,
-            "user_method_success_rate": 0.10,
-            "merchant_method_success_rate": 0.10,
-        }
-
-        persisted_request = {
-            **VALID_REQUEST,
-            "network_quality": "good",
-            "hour_of_day": 14,
-            "device_type": "mobile",
-            "retry_count": 0,
-            "transaction_velocity": 2,
-            "user_method_success_rate": 0.90,
-            "merchant_method_success_rate": 0.92,
-        }
-
-        persisted_response = client.post(
+        first_response = client.post(
             "/predict",
-            json=persisted_request,
+            json=VALID_REQUEST,
         )
 
-        conflicting_response = client.post(
+        second_response = client.post(
             "/predict",
-            json=request_with_conflicting_context,
+            json=VALID_REQUEST,
         )
 
-        assert persisted_response.status_code == 200
-        assert conflicting_response.status_code == 200
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
 
-        persisted_data = persisted_response.json()
-        conflicting_data = conflicting_response.json()
+        first_data = first_response.json()
+        second_data = second_response.json()
 
         assert (
-            conflicting_data["failure_probability"]
-            == persisted_data["failure_probability"]
+            second_data["failure_probability"]
+            == first_data["failure_probability"]
         )
         assert (
-            conflicting_data["success_probability"]
-            == persisted_data["success_probability"]
+            second_data["success_probability"]
+            == first_data["success_probability"]
         )
 
     finally:
         cleanup_test_data()
+        

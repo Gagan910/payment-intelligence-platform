@@ -230,6 +230,34 @@ def main() -> None:
             )
         )
 
+        recommended_routes = routing_data[
+            routing_data["potential_improvement"] >= threshold
+        ].copy()
+
+        route_counts = (
+            recommended_routes
+            .groupby(
+                ["current_method", "best_alternative_method"]
+            )
+            .size()
+            .reset_index(name="recommendations")
+            .sort_values(
+                "recommendations",
+                ascending=False,
+            )
+        )
+
+        print("\nRecommended Route Distribution")
+        print("-" * 100)
+
+        if route_counts.empty:
+            print("No recommendations at this threshold.")
+        else:
+            print(
+                route_counts.to_string(
+                    index=False,
+                )
+            )
 
 if __name__ == "__main__":
     main()

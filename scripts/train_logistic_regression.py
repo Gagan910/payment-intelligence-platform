@@ -36,6 +36,9 @@ CATEGORICAL_FEATURES = [
     "user_segment",
     "device_type",
     "network_quality",
+    "merchant_payment_method",
+    "device_payment_method",
+    "network_payment_method",
 ]
 
 NUMERIC_FEATURES = [

@@ -28,13 +28,54 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 def create_transaction_endpoint(
     request: TransactionRequest,
 ) -> TransactionResponse:
-    """Create a transaction and assign its experiment variant server-side."""
+    """Create a simulated checkout transaction atomically."""
 
     transaction_timestamp = datetime.now(timezone.utc)
 
     conn = get_connection()
 
     try:
+        # Create the parent user record if it does not already exist.
+        # The frontend generates simulated user IDs, so the API owns
+        # creation of these synthetic parent records.
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users (
+                    user_id,
+                    user_segment,
+                    preferred_payment_method
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+                (
+                    request.user_id,
+                    "regular",
+                    request.selected_payment_method,
+                ),
+            )
+
+            # The current frontend represents a demo merchant without
+            # a separate merchant-category field. Use the existing
+            # synthetic electronics merchant category for this demo.
+            cursor.execute(
+                """
+                INSERT INTO merchants (
+                    merchant_id,
+                    merchant_category,
+                    merchant_risk_score
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT (merchant_id) DO NOTHING
+                """,
+                (
+                    request.merchant_id,
+                    "electronics",
+                    0.20,
+                ),
+            )
+
         experiment_variant = assign_and_persist_variant(
             conn,
             experiment_id=EXPERIMENT_ID,
