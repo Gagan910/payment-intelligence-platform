@@ -45,7 +45,13 @@ NETWORK_QUALITY = (
     "excellent",
 )
 
-PAYMENT_METHOD = "debit_card"
+PAYMENT_METHODS = (
+    "upi",
+    "credit_card",
+    "debit_card",
+    "net_banking",
+    "wallet",
+)
 
 RANDOM_SEED = 42
 
@@ -56,6 +62,7 @@ def create_parent_records(
     merchant_id: str,
     user_segment: str,
     merchant_category: str,
+    selected_payment_method: str,
 ) -> None:
     from payment_platform.db.connection import get_connection
 
@@ -75,7 +82,7 @@ def create_parent_records(
                 (
                     user_id,
                     user_segment,
-                    PAYMENT_METHOD,
+                    selected_payment_method,
                 ),
             )
 
@@ -153,11 +160,16 @@ def run_single_transaction(
 
     context = build_transaction_context(rng)
 
+    selected_payment_method = rng.choice(
+        PAYMENT_METHODS
+    )
+
     create_parent_records(
         user_id=user_id,
         merchant_id=merchant_id,
         user_segment=user_segment,
         merchant_category=merchant_category,
+        selected_payment_method=selected_payment_method,
     )
 
     transaction_request = {
@@ -166,7 +178,7 @@ def run_single_transaction(
         "merchant_id": merchant_id,
         "amount": amount,
         "currency": "INR",
-        "selected_payment_method": PAYMENT_METHOD,
+        "selected_payment_method": selected_payment_method,
         "status": "initiated",
         "context": context,
     }
@@ -186,29 +198,8 @@ def run_single_transaction(
     transaction_data = transaction_response.json()
     variant = transaction_data["experiment_variant"]
 
-    hour_of_day = rng.randint(0, 23)
-    day_of_week = index % 7
-
     recommendation_request = {
         "transaction_id": transaction_id,
-        "amount": amount,
-        "merchant_category": merchant_category,
-        "payment_method": PAYMENT_METHOD,
-        "user_segment": user_segment,
-        "device_type": context["device_type"],
-        "network_quality": context["network_quality"],
-        "hour_of_day": hour_of_day,
-        "day_of_week": day_of_week,
-        "retry_count": context["retry_count"],
-        "transaction_velocity": context[
-            "transaction_velocity"
-        ],
-        "user_method_success_rate": context[
-            "user_method_success_rate"
-        ],
-        "merchant_method_success_rate": context[
-            "merchant_method_success_rate"
-        ],
     }
 
     recommendation_response = client.post(
@@ -249,7 +240,7 @@ def run_single_transaction(
 
     decision_data = decision_response.json()
 
-    selected_payment_method = decision_data[
+    final_payment_method = decision_data[
         "selected_payment_method"
     ]
 
@@ -257,7 +248,7 @@ def run_single_transaction(
         "/payment-attempts",
         json={
             "transaction_id": transaction_id,
-            "payment_method": selected_payment_method,
+            "payment_method": final_payment_method,
             "attempt_number": 1,
         },
     )
@@ -281,7 +272,7 @@ def run_single_transaction(
             "recommended_method"
         ],
         "accepted": accepted,
-        "selected_payment_method": selected_payment_method,
+        "selected_payment_method": final_payment_method,
         "outcome": payment_data["outcome"],
     }
 
