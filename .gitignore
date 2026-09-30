@@ -24,6 +24,7 @@ data/processed/
 # Generated models
 models/*.pkl
 models/*.joblib
+!models/logistic_regression_baseline.joblib
 models/*.onnx
 
 # Logs
