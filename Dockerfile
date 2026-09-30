@@ -10,7 +10,6 @@ COPY pyproject.toml ./
 
 COPY src ./src
 COPY models ./models
-COPY configs ./configs
 COPY db ./db
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
