@@ -12,6 +12,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: payment_intelligence
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d payment_intelligence"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/payment_intelligence
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,7 +40,18 @@ jobs:
           python-version: "3.12"
 
       - name: Install project
-        run: python -m pip install --upgrade pip && python -m pip install .
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[test]"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Initialize PostgreSQL schema
+        run: |
+          psql "$DATABASE_URL" -f db/schema.sql
 
       - name: Run tests
         run: python -m pytest
