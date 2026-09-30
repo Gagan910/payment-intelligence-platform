@@ -7,7 +7,18 @@ name = "payment-intelligence-platform"
 version = "0.1.0"
 description = "ML-powered payment failure prediction and smart routing platform using synthetic payment data."
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn==0.54.0",
+    "numpy==2.5.3",
+    "pandas==3.0.6",
+    "scikit-learn==1.9.1",
+    "xgboost==3.4.1",
+    "joblib==1.6.0",
+    "psycopg[binary]==3.3.6",
+    "pydantic==2.13.5",
+    "python-dotenv==1.2.3",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
