@@ -464,6 +464,26 @@ def test_treatment_transaction_smart_routing_flow():
     assert decision_data["accepted"] is True
     assert decision_data["selected_payment_method"] == "upi"
 
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT selected_payment_method
+                FROM transactions
+                WHERE transaction_id = %s
+                """,
+                (transaction_id,),
+            )
+            row = cursor.fetchone()
+
+        assert row is not None
+        assert row[0] == "upi"
+
+    finally:
+        conn.close()
+
     payment_attempt_response = client.post(
         "/payment-attempts",
         json={

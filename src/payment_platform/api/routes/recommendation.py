@@ -19,6 +19,7 @@ from payment_platform.db.repositories.recommendations import (
 from payment_platform.db.repositories.transactions import (
     get_transaction,
     get_transaction_context,
+    update_transaction_payment_method,
 )
 from payment_platform.experiments.events import record_experiment_event
 from payment_platform.experiments.policy import should_use_smart_routing
@@ -246,6 +247,13 @@ def record_recommendation_decision(
         selected_payment_method = select_payment_method(
             recommendation_result,
             accepted=request.accepted,
+        )
+
+        update_transaction_payment_method(
+            conn,
+            transaction_id=str(recommendation["transaction_id"]),
+            selected_payment_method=selected_payment_method,
+            commit=False,
         )
 
         record_experiment_event(

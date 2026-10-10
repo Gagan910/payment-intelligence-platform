@@ -125,6 +125,31 @@ def update_transaction_status(
         conn.commit()
 
 
+def update_transaction_payment_method(
+    conn: psycopg.Connection,
+    *,
+    transaction_id: str,
+    selected_payment_method: str,
+    commit: bool = True,
+) -> None:
+    """Update the selected payment method for a transaction."""
+
+    query = """
+        UPDATE transactions
+        SET selected_payment_method = %s
+        WHERE transaction_id = %s
+    """
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            query,
+            (selected_payment_method, transaction_id),
+        )
+
+    if commit:
+        conn.commit()
+
+
 def get_transaction_context(
     conn: psycopg.Connection,
     *,
