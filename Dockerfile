@@ -17,4 +17,4 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 
 EXPOSE 8001
 
-CMD ["uvicorn", "payment_platform.api.app:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "payment_platform.api.app:application", "--host", "0.0.0.0", "--port", "8001"]

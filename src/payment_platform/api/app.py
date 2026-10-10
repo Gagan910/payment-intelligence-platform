@@ -1,5 +1,8 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from payment_platform.api.middleware import RequestLoggingMiddleware
 
 from payment_platform.api.routes.prediction import router as prediction_router
 from payment_platform.api.routes.recommendation import (
@@ -9,6 +12,15 @@ from payment_platform.api.routes.payment_attempt import (
     router as payment_attempt_router,
 )
 from payment_platform.api.routes.transaction import router as transaction_router
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=(
+        "%(asctime)s %(levelname)s %(name)s "
+        "%(message)s"
+    ),
+)
 
 
 app = FastAPI(
@@ -45,3 +57,4 @@ app.include_router(transaction_router)
 app.include_router(prediction_router)
 app.include_router(recommendation_router)
 app.include_router(payment_attempt_router)
+application = RequestLoggingMiddleware(app)
