@@ -1,0 +1,24 @@
+﻿{
+  "target": "https://payment-intelligence-platform.onrender.com",
+  "endpoint": "/predict",
+  "environment": "production",
+  "measurement_type": "client_observed_latency",
+  "timestamp_utc": "2026-10-10T10:38:03Z",
+  "sample_count": 5,
+  "successful_requests": 5,
+  "failed_requests": 0,
+  "latency_ms": {
+    "mean": 773.88,
+    "median": 482.83,
+    "min": 395.93,
+    "max": 1621.76
+  },
+  "model_version": "logistic_regression_baseline_v1",
+  "transaction_id": "web_1791628218378_2hyhk6n0",
+  "notes": [
+    "Five sequential production requests using one existing synthetic transaction.",
+    "Each successful request inserts a prediction record.",
+    "Small sample; not a production SLA or statistically reliable percentile baseline.",
+    "Latency includes client, network, hosting, API and database-related overhead."
+  ]
+}
