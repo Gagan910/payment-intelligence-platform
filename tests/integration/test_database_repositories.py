@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from payment_platform.db.connection import get_connection
 from payment_platform.db.repositories.experiment_assignments import (
     create_experiment_assignment,
@@ -15,6 +17,7 @@ from payment_platform.db.repositories.payment_attempts import (
 from payment_platform.db.repositories.predictions import create_prediction
 from payment_platform.db.repositories.recommendations import (
     create_recommendation,
+    update_recommendation_decision,
 )
 from payment_platform.db.repositories.transaction_context import (
     create_transaction_context,
@@ -343,6 +346,99 @@ def test_database_repositories() -> None:
                 (TEST_TRANSACTION_ID,),
             )
             assert cursor.fetchone()[0] == 1
+
+    finally:
+        conn.close()
+        cleanup_test_data()
+
+
+def test_recommendation_decision_cannot_be_overwritten() -> None:
+    """A recommendation decision can be recorded only once."""
+    cleanup_test_data()
+    conn = get_connection()
+
+    try:
+        now = datetime.now(timezone.utc)
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users (
+                    user_id,
+                    user_segment,
+                    preferred_payment_method
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (TEST_USER_ID, "regular", "upi"),
+            )
+            cursor.execute(
+                """
+                INSERT INTO merchants (
+                    merchant_id,
+                    merchant_category,
+                    merchant_risk_score
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (TEST_MERCHANT_ID, "electronics", 0.10),
+            )
+
+        conn.commit()
+
+        create_transaction(
+            conn,
+            transaction_id=TEST_TRANSACTION_ID,
+            user_id=TEST_USER_ID,
+            merchant_id=TEST_MERCHANT_ID,
+            amount=500.00,
+            currency="INR",
+            timestamp=now,
+            selected_payment_method="upi",
+            experiment_variant="control",
+            status="initiated",
+        )
+
+        recommendation_id = create_recommendation(
+            conn,
+            transaction_id=TEST_TRANSACTION_ID,
+            original_method="upi",
+            recommended_method="credit_card",
+            recommendation_score=0.08,
+            reason="Test recommendation.",
+            accepted=None,
+            timestamp=now,
+        )
+
+        update_recommendation_decision(
+            conn,
+            recommendation_id=recommendation_id,
+            accepted=True,
+        )
+        conn.commit()
+
+        with pytest.raises(ValueError, match="already has a decision"):
+            update_recommendation_decision(
+                conn,
+                recommendation_id=recommendation_id,
+                accepted=False,
+            )
+
+        conn.rollback()
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT accepted
+                FROM recommendations
+                WHERE recommendation_id = %s
+                """,
+                (recommendation_id,),
+            )
+            row = cursor.fetchone()
+
+        assert row is not None
+        assert row[0] is True
 
     finally:
         conn.close()

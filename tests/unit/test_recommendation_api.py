@@ -7,6 +7,9 @@ from payment_platform.db.connection import get_connection
 from payment_platform.db.repositories.transaction_context import (
     create_transaction_context,
 )
+from payment_platform.db.repositories.recommendations import (
+    get_recommendation,
+)
 from payment_platform.db.repositories.transactions import create_transaction
 
 
@@ -454,4 +457,78 @@ def test_recommendation_api_control_variant_keeps_current_method():
 
     finally:
         cleanup_test_data()
-        
+
+
+
+def test_recommendation_api_rejects_duplicate_decision():
+    cleanup_test_data()
+    create_test_transaction()
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO recommendations (
+                    transaction_id,
+                    original_method,
+                    recommended_method,
+                    recommendation_score,
+                    reason,
+                    accepted
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING recommendation_id
+                """,
+                (
+                    VALID_REQUEST["transaction_id"],
+                    "debit_card",
+                    "credit_card",
+                    0.08,
+                    "Test recommendation.",
+                    None,
+                ),
+            )
+            recommendation_id = cursor.fetchone()[0]
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    try:
+        first_response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": True,
+            },
+        )
+
+        assert first_response.status_code == 200
+
+        second_response = client.post(
+            "/recommend/decision",
+            json={
+                "recommendation_id": recommendation_id,
+                "accepted": False,
+            },
+        )
+
+        assert second_response.status_code == 409
+
+        conn = get_connection()
+        try:
+            recommendation = get_recommendation(
+                conn,
+                recommendation_id=recommendation_id,
+            )
+
+            assert recommendation is not None
+            assert recommendation["accepted"] is True
+        finally:
+            conn.close()
+
+    finally:
+        cleanup_test_data()

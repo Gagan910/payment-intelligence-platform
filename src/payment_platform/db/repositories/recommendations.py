@@ -88,16 +88,22 @@ def get_recommendation(
     }
 
 
+
 def update_recommendation_decision(
     conn: psycopg.Connection,
     *,
     recommendation_id: int,
     accepted: bool,
 ) -> None:
+    """Record a decision only if the recommendation is still undecided.
+
+    The caller owns the transaction and must commit or roll it back.
+    """
     query = """
         UPDATE recommendations
         SET accepted = %s
         WHERE recommendation_id = %s
+          AND accepted IS NULL
     """
 
     with conn.cursor() as cursor:
@@ -110,9 +116,8 @@ def update_recommendation_decision(
         )
 
         if cursor.rowcount == 0:
-            conn.rollback()
-            raise ValueError(
-                f"Recommendation '{recommendation_id}' does not exist."
-            )
 
-    conn.commit()
+            raise ValueError(
+                f"Recommendation '{recommendation_id}' does not exist "
+                "or already has a decision."
+            )
