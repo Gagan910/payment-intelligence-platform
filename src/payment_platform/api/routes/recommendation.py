@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -98,29 +99,39 @@ def recommend(
                 ),
             )
 
+        transaction_series = pd.Series(transaction_context)
+
+        failure_probabilities = (
+            predict_counterfactual_failure_probabilities(
+                model=predictor.model,
+                transaction=transaction_series,
+            )
+        )
+
         if use_smart_routing:
-            transaction_series = pd.Series(
-                transaction_context
-            )
-
-            failure_probabilities = (
-                predict_counterfactual_failure_probabilities(
-                    model=predictor.model,
-                    transaction=transaction_series,
-                )
-            )
-
             recommendation = generate_recommendation(
                 current_method=current_method,
                 method_failure_probabilities=failure_probabilities,
             )
-
         else:
+            if current_method not in failure_probabilities:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "The model did not return a failure probability "
+                        f"for the current method '{current_method}'."
+                    ),
+                )
+
+            current_failure_probability = failure_probabilities[
+                current_method
+            ]
+
             recommendation = RecommendationResult(
                 recommendation_action="KEEP_CURRENT",
                 current_method=current_method,
                 recommended_method=None,
-                current_failure_probability=0.0,
+                current_failure_probability=current_failure_probability,
                 recommended_failure_probability=None,
                 expected_improvement=0.0,
                 reason="Control variant: smart routing is not enabled.",
