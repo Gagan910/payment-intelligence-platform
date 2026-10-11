@@ -76,6 +76,7 @@ CREATE TABLE recommendations (
     timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+
 CREATE TABLE payment_attempts (
     attempt_id BIGSERIAL PRIMARY KEY,
     transaction_id VARCHAR(100) NOT NULL REFERENCES transactions(transaction_id),
@@ -83,7 +84,9 @@ CREATE TABLE payment_attempts (
     attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
     started_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ,
-    outcome VARCHAR(50) NOT NULL
+    outcome VARCHAR(50) NOT NULL,
+    CONSTRAINT uq_payment_attempt_transaction_number
+        UNIQUE (transaction_id, attempt_number)
 );
 
 CREATE TABLE experiment_assignments (

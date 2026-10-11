@@ -394,3 +394,84 @@ def test_payment_attempt_api_records_experiment_event():
 
     finally:
         cleanup_test_data()
+
+
+
+def test_payment_attempt_api_rejects_unselected_payment_method():
+    cleanup_test_data()
+    create_test_transaction()
+
+    try:
+        invalid_method_request = {
+            **VALID_REQUEST,
+            "payment_method": "upi",
+        }
+
+        response = client.post(
+            "/payment-attempts",
+            json=invalid_method_request,
+        )
+
+        assert response.status_code == 409
+        assert "selected payment method" in response.json()["detail"].lower()
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM payment_attempts
+                    WHERE transaction_id = %s
+                    """,
+                    (TRANSACTION_ID,),
+                )
+                attempt_count = cursor.fetchone()[0]
+
+            assert attempt_count == 0
+        finally:
+            conn.close()
+
+    finally:
+        cleanup_test_data()
+
+
+
+def test_payment_attempt_api_rejects_duplicate_attempt_number():
+    cleanup_test_data()
+    create_test_transaction()
+
+    try:
+        first_response = client.post(
+            "/payment-attempts",
+            json=VALID_REQUEST,
+        )
+        assert first_response.status_code == 200
+
+        duplicate_response = client.post(
+            "/payment-attempts",
+            json=VALID_REQUEST,
+        )
+
+        assert duplicate_response.status_code == 409
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM payment_attempts
+                    WHERE transaction_id = %s
+                      AND attempt_number = %s
+                    """,
+                    (TRANSACTION_ID, VALID_REQUEST["attempt_number"]),
+                )
+                attempt_count = cursor.fetchone()[0]
+
+            assert attempt_count == 1
+        finally:
+            conn.close()
+
+    finally:
+        cleanup_test_data()

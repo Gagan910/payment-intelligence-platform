@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
+from psycopg.errors import UniqueViolation
 
 from payment_platform.api.schemas.payment_attempt import (
     PaymentAttemptRequest,
@@ -52,6 +53,17 @@ def create_payment_attempt_endpoint(
                     "does not exist."
                 ),
             )
+
+
+        if request.payment_method != transaction["selected_payment_method"]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The requested payment method does not match "
+                    "the transaction's selected payment method."
+                ),
+            )
+
 
         transaction_context_data = get_transaction_context(
             conn,
@@ -108,13 +120,23 @@ def create_payment_attempt_endpoint(
 
         conn.commit()
 
+
     except HTTPException:
         conn.rollback()
         raise
-
+    except UniqueViolation as exc:
+        conn.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "An attempt with this number already exists "
+                "for the transaction."
+            ),
+        ) from exc
     except Exception:
         conn.rollback()
         raise
+
 
     finally:
         conn.close()
