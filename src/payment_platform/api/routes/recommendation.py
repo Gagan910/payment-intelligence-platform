@@ -190,7 +190,16 @@ def recommend(
     )
 
 
-@router.post("/decision")
+@router.post(
+    "/decision",
+    responses={
+        409: {
+            "description": (
+                "Conflict: this recommendation already has a decision."
+            )
+        }
+    },
+)
 def record_recommendation_decision(
     request: RecommendationDecisionRequest,
 ) -> dict[str, object]:
