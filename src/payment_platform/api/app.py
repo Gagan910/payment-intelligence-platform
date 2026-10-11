@@ -11,6 +11,9 @@ from payment_platform.api.routes.recommendation import (
 from payment_platform.api.routes.payment_attempt import (
     router as payment_attempt_router,
 )
+from payment_platform.api.routes.experiment import (
+    router as experiment_router,
+)
 from payment_platform.api.routes.transaction import router as transaction_router
 
 
@@ -35,7 +38,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    
+
     allow_origins=[
         "http://127.0.0.1:5500",
         "http://localhost:5500",
@@ -57,4 +60,5 @@ app.include_router(transaction_router)
 app.include_router(prediction_router)
 app.include_router(recommendation_router)
 app.include_router(payment_attempt_router)
+app.include_router(experiment_router)
 application = RequestLoggingMiddleware(app)
