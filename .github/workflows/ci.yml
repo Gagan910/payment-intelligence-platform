@@ -53,7 +53,10 @@ jobs:
         run: |
           psql "$DATABASE_URL" -f db/schema.sql
 
-      - name: Run tests
+      - name: Run database migration tests
+        run: python -m pytest tests/integration/test_payment_migration.py -v
+
+      - name: Run full test suite
         run: python -m pytest
 
       - name: Build Docker image
