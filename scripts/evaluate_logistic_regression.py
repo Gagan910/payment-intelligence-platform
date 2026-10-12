@@ -8,6 +8,8 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import (
     average_precision_score,
     brier_score_loss,
+    classification_report,
+    confusion_matrix,
     roc_auc_score,
 )
 
@@ -16,8 +18,8 @@ FEATURE_DIR = Path("data/processed/features")
 MODEL_PATH = Path("models/logistic_regression_baseline.joblib")
 OUTPUT_DIR = Path("data/processed/evaluation")
 
-VALIDATION_FEATURES = FEATURE_DIR / "validation_features.parquet"
-VALIDATION_TARGET = FEATURE_DIR / "validation_target.parquet"
+TEST_FEATURES = FEATURE_DIR / "test_features.parquet"
+TEST_TARGET = FEATURE_DIR / "test_target.parquet"
 
 
 def main() -> None:
@@ -25,24 +27,105 @@ def main() -> None:
 
     model = joblib.load(MODEL_PATH)
 
-    X_validation = pd.read_parquet(VALIDATION_FEATURES)
-    y_validation = pd.read_parquet(VALIDATION_TARGET)["payment_success"]
+    X_test = pd.read_parquet(TEST_FEATURES)
+    y_test = pd.read_parquet(TEST_TARGET)["payment_success"]
 
-    print(f"Validation rows: {len(X_validation):,}")
+    print(f"Test rows: {len(X_test):,}")
 
     print("\nGenerating probability predictions...")
 
-    probabilities = model.predict_proba(X_validation)[:, 1]
+    probabilities = model.predict_proba(X_test)[:, 1]
 
-    roc_auc = roc_auc_score(y_validation, probabilities)
-    pr_auc = average_precision_score(y_validation, probabilities)
-    brier = brier_score_loss(y_validation, probabilities)
+    
+    roc_auc = roc_auc_score(y_test, probabilities)
+    pr_auc = average_precision_score(y_test, probabilities)
+    brier = brier_score_loss(y_test, probabilities)
+
+    failure_labels = 1 - y_test
+    failure_probabilities = 1 - probabilities
+
+    failure_pr_auc = average_precision_score(
+        failure_labels,
+        failure_probabilities,
+    )
+
+    failure_rate = failure_labels.mean()
+
+    
+    print("\nFailure Threshold Analysis")
+    print("=" * 85)
+
+    threshold_results = []
+
+    for threshold in [0.10, 0.15, 0.20, 0.25, 0.30, 0.50]:
+        failure_predictions = (
+            failure_probabilities >= threshold
+        ).astype(int)
+
+        tn, fp, fn, tp = confusion_matrix(
+            failure_labels,
+            failure_predictions,
+            labels=[0, 1],
+        ).ravel()
+
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall)
+            else 0.0
+        )
+
+        threshold_results.append(
+            {
+                "threshold": threshold,
+                "failures_caught": tp,
+                "failures_missed": fn,
+                "successful_payments_flagged": fp,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+            }
+        )
+
+    print(
+        pd.DataFrame(threshold_results).to_string(
+            index=False,
+            float_format=lambda value: f"{value:.4f}",
+        )
+    )
+
+
+    print("\nFailure Classification Metrics (threshold = 0.50)")
+    print("=" * 50)
+
+    print(
+        classification_report(
+            failure_labels,
+            failure_predictions,
+            target_names=["Success", "Failure"],
+            zero_division=0,
+        )
+    )
+
+    print("Confusion Matrix:")
+    print(
+        confusion_matrix(
+            failure_labels,
+            failure_predictions,
+            labels=[0, 1],
+        )
+    )
+
 
     print("\nProbability Metrics")
     print("=" * 50)
     print(f"ROC-AUC:     {roc_auc:.4f}")
     print(f"PR-AUC:      {pr_auc:.4f}")
     print(f"Brier Score: {brier:.4f}")
+    print(f"Failure PR-AUC: {failure_pr_auc:.4f}")
+    print(f"Actual Failure Rate: {failure_rate:.4f}")
 
     print("\nProbability Summary")
     print("=" * 50)
@@ -53,7 +136,7 @@ def main() -> None:
 
     # Calculate calibration curve.
     fraction_of_positives, mean_predicted_value = calibration_curve(
-        y_validation,
+        y_test,
         probabilities,
         n_bins=10,
         strategy="uniform",

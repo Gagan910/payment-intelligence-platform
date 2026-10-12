@@ -28,6 +28,7 @@ VALIDATION_FEATURES = FEATURE_DIR / "validation_features.parquet"
 VALIDATION_TARGET = FEATURE_DIR / "validation_target.parquet"
 
 MODEL_PATH = MODEL_DIR / "logistic_regression_baseline.joblib"
+CANDIDATE_MODEL_PATH = MODEL_DIR / "logistic_regression_no_interactions.joblib"
 
 
 CATEGORICAL_FEATURES = [
@@ -68,13 +69,36 @@ def load_data():
     return X_train, y_train, X_validation, y_validation
 
 
-def build_pipeline() -> Pipeline:
+
+def build_pipeline(include_interactions: bool = True) -> Pipeline:
+    categorical_features = CATEGORICAL_FEATURES.copy()
+    numeric_features = NUMERIC_FEATURES.copy()
+
+    if not include_interactions:
+        interaction_features = [
+            "merchant_payment_method",
+            "device_payment_method",
+            "network_payment_method",
+        ]
+
+        categorical_features = [
+            column
+            for column in categorical_features
+            if column not in interaction_features
+        ]
+
+        numeric_features = [
+            column
+            for column in numeric_features
+            if column not in interaction_features
+        ]
+
     preprocessor = ColumnTransformer(
         transformers=[
             (
                 "numeric",
                 StandardScaler(),
-                NUMERIC_FEATURES,
+                numeric_features,
             ),
             (
                 "categorical",
@@ -82,7 +106,7 @@ def build_pipeline() -> Pipeline:
                     handle_unknown="ignore",
                     sparse_output=True,
                 ),
-                CATEGORICAL_FEATURES,
+                categorical_features,
             ),
         ]
     )
@@ -98,6 +122,7 @@ def build_pipeline() -> Pipeline:
             ("model", model),
         ]
     )
+
 
 
 def evaluate_model(
