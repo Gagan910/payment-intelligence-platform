@@ -8,7 +8,7 @@ An ML-powered payment decisioning platform that estimates payment-failure risk a
 - **Backend API / Swagger:** https://payment-intelligence-platform.onrender.com/docs
 - **Health check:** https://payment-intelligence-platform.onrender.com/health
 
-> **Safety:** This is a simulation. It does not process real money. Never enter real card numbers, CVVs, UPI PINs, OTPs, bank credentials, or other payment secrets.
+> **Safety:** This is a simulation and does not process real money. Never enter real card numbers, CVVs, UPI PINs, OTPs, bank credentials, or other payment secrets.
 
 ## Problem Statement
 
@@ -30,6 +30,7 @@ The routing layer does **not** blindly choose the method with the highest predic
 - Payment-method recommendation using a configurable improvement threshold.
 - APIs for transactions, predictions, recommendations, decisions, payment attempts, and experiment summaries.
 - Temporal evaluation, calibration analysis, routing backtests, feature ablation, and robustness experiments.
+- A/B experiment assignment and evaluation with confidence intervals and significance testing.
 - Automated tests, Docker support, and deployed frontend/backend.
 
 ## Architecture
@@ -114,11 +115,37 @@ Results must be interpreted in the context of the synthetic data generator. Perf
 
 The recommendation layer evaluates whether an alternative offers enough predicted improvement over the current method. The deployed configuration uses a minimum required improvement of **5 percentage points**. If no alternative meets the threshold, the API can return `KEEP_CURRENT`.
 
-### Experiment Interpretation
+## A/B Experimentation
 
-The experiment ID is `payment_routing_v1`. The summary endpoint reports control/treatment counts, attempted and successful transactions, unresolved transactions, success rates, confidence intervals, and estimated lift.
+The experiment ID is `payment_routing_v1`. The framework supports control/treatment assignment and evaluation of payment outcomes, routing switches, confidence intervals, and estimated lift.
 
-During manual verification, the live experiment was marked `insufficient_data` because both variants were below the configured minimum sample size of 100. Its observed lift is **not evidence of a validated real-world improvement**.
+### Preliminary local synthetic experiment
+
+Run ID: `ab_20261014_212801_7ac7e38a`
+
+| Metric | Control | Treatment |
+|---|---:|---:|
+| Transactions | 49 | 51 |
+| Successful payments | 28 | 37 |
+| Payment success rate | 57.14% | 72.55% |
+| 95% confidence interval for success rate | 43.27%–69.98% | 59.05%–82.89% |
+| Routing switches | 0 | 25 |
+| Mean payment latency | 34.738 ms | 35.159 ms |
+
+**Observed absolute difference:** +15.41 percentage points
+**95% confidence interval for the difference:** −3.09 to +33.90 percentage points
+**Two-proportion z-test p-value:** 0.1064
+**Statistically significant at α = 0.05:** No
+
+The treatment group had a higher observed success rate in this 100-transaction run, but the confidence interval includes zero and the p-value exceeds 0.05. This experiment therefore does **not** establish a statistically significant improvement.
+
+**Interpretation limitations:**
+
+- This was a small synthetic experiment; its results are not evidence of real-world payment performance.
+- The experiment runner marks treatment switches as accepted, so the reported 100% acceptance rate does not represent natural user behavior.
+- Abandonment rate is unavailable because abandonment events are not recorded.
+- Time-to-success is not currently defined as an experiment metric.
+- This local experiment is separate from the deployed experiment summary. During prior manual verification, the deployed experiment reported `insufficient_data` because both variants were below the configured minimum sample size of 100.
 
 ## API Endpoints
 
@@ -135,25 +162,25 @@ The deployed Swagger UI is the authoritative source for request schemas and resp
 | `POST` | `/recommend` | Evaluate routing options and return a recommendation |
 | `POST` | `/recommend/decision` | Record whether a recommendation was accepted |
 | `POST` | `/payment-attempts` | Record a simulated payment attempt |
-| `GET` | `/experiments/{experiment_id}/summary` | Retrieve experiment summary metrics |
+| `GET` | `/experiments/{experiment_id}/summary` | Retrieve aggregate experiment metrics |
 
 ## Technology Stack
 
 - **Language:** Python 3.12
-- **API:** FastAPI
-- **Machine learning:** scikit-learn / Logistic Regression
-- **Data processing:** pandas, NumPy
-- **Database:** PostgreSQL
-- **Project configuration:** `pyproject.toml`
-- **Testing:** automated test suite
+- **API:** FastAPI and Uvicorn
+- **Machine learning:** scikit-learn, Logistic Regression, XGBoost
+- **Data processing:** pandas and NumPy
+- **Database:** PostgreSQL with psycopg
+- **Configuration:** `pyproject.toml`, environment variables, and python-dotenv
+- **Testing:** pytest and HTTPX-compatible test tooling declared in the project configuration
 - **Deployment/containerization:** Docker and Render
-- **Frontend:** deployed checkout interface
+- **Frontend:** Deployed checkout interface
 
-Confirm exact dependency versions and the application entry point from the repository configuration before publishing version-specific setup instructions.
+The declared dependency versions are pinned in `pyproject.toml`.
 
 ## Run Locally
 
-These instructions provide a starting point. Database settings, required environment variables, dependency groups, and the ASGI entry point must match the current repository configuration.
+These instructions assume Python 3.12 and a running PostgreSQL instance. Use a dedicated local development/test database; do not point development tests or synthetic experiment runs at production data.
 
 ### 1. Clone the repository
 
@@ -162,9 +189,7 @@ git clone https://github.com/Gagan910/payment-intelligence-platform.git
 cd payment-intelligence-platform
 ```
 
-Replace the placeholder with your actual repository URL.
-
-### 2. Create a virtual environment
+### 2. Create and activate a virtual environment
 
 **Windows PowerShell:**
 
@@ -180,51 +205,57 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3. Install the project
-
-Inspect `pyproject.toml` for the declared build backend and development dependencies. If editable installation is supported, a typical command is:
+### 3. Install the project and test dependencies
 
 ```bash
 python -m pip install --upgrade pip
-pip install -e .
+pip install -e ".[test]"
 ```
 
-Install the project's test/development dependency group if one is defined.
+### 4. Configure the database
 
-### 4. Configure the database and environment
+Set `DATABASE_URL` to a PostgreSQL database dedicated to this local instance. The application loads environment variables from `.env` when present. The fallback URL in the source is:
 
-Set the required database connection and application settings using the environment-variable names defined by the project. Never commit `.env` files, passwords, API keys, or production credentials.
+```text
+postgresql://postgres:postgres@127.0.0.1:5432/payment_intelligence
+```
 
-# Initialize the database schema (PostgreSQL must be running)
+Create a local `.env` file with your own database URL, for example:
+
+```dotenv
+DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<database_name>
+```
+
+Replace the placeholders with your local database settings. Do not commit `.env` files, passwords, API keys, or production credentials.
+
+Initialize the schema and apply the migration:
+
+```powershell
 psql "$env:DATABASE_URL" -f db/schema.sql
-
-# Apply the payment-attempt uniqueness migration
 psql "$env:DATABASE_URL" -f db/migrations/001_add_payment_attempt_uniqueness.sql
+```
+
+Run these commands only against the intended local database. Confirm the migration's expected starting schema before applying it to any existing database.
 
 ### 5. Start the API
 
-Start the FastAPI backend from the project root:
+From the repository root, with the virtual environment active:
 
 ```powershell
 uvicorn payment_platform.api.app:app --reload
-
-```bash
-uvicorn payment_platform.api.app:app --reload
 ```
 
-Verify that module path before running the command. If the server uses the default port, Swagger UI is available at `http://127.0.0.1:8000/docs`.
+On macOS/Linux, use the same command in the activated environment. With the default Uvicorn port, Swagger UI is available at `http://127.0.0.1:8000/docs`.
 
-## Testing
+### 6. Run tests
 
-The recorded development verification included **109 passing tests** and successful Python compilation of the experiment scripts. Re-run the tests in the current checkout before relying on this count for a release.
-
-A common test command is:
+Configure `DATABASE_URL` to point to a dedicated test database before running tests:
 
 ```bash
-pytest
+python -m pytest -q
 ```
 
-Configure the project's test database and required environment variables first. Do not point tests at production data.
+A recorded development verification completed with **109 passing tests** against a local Docker PostgreSQL test database. This is a historical result; re-run the suite on the current checkout to verify it independently.
 
 ## Deployed Demo Walkthrough
 
@@ -233,7 +264,7 @@ Configure the project's test database and required environment variables first. 
 3. Use [Swagger UI](https://payment-intelligence-platform.onrender.com/docs) to create a synthetic transaction.
 4. Copy the returned transaction ID and use it with `POST /predict`.
 5. Use the same ID with `POST /recommend`.
-6. If applicable, record the result with `POST /recommend/decision`.
+6. If applicable, record the decision with `POST /recommend/decision`.
 7. Record a simulated attempt with `POST /payment-attempts`.
 8. Query `/experiments/payment_routing_v1/summary` to inspect aggregate experiment metrics.
 
@@ -241,7 +272,10 @@ Configure the project's test database and required environment variables first. 
 
 - Data and outcomes are synthetic and depend on generator assumptions.
 - Model performance on synthetic data may not generalize to real payment systems.
-- Experiment results need adequate sample sizes; insufficient data cannot establish a reliable lift.
+- The observed A/B difference was not statistically significant in the preliminary 100-transaction run.
+- The experiment runner forces switch acceptance; natural user acceptance is not measured.
+- Abandonment and time-to-success metrics are not currently available.
+- Experiment results need adequate sample sizes; insufficient data cannot establish reliable lift.
 - This is a portfolio simulation, not a production payment processor.
 - No real payments, bank integrations, card processing, or payment-network authorization are performed.
 
@@ -258,6 +292,7 @@ Configure the project's test database and required environment variables first. 
 - Monitor prediction drift and probability calibration.
 - Evaluate on approved, anonymized real-world data if legally permitted.
 - Collect sufficient experiment samples before drawing conclusions.
+- Record natural recommendation acceptance and abandonment events.
 - Add structured audit logging and further production controls.
 
 ## Author
